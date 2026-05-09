@@ -30,14 +30,28 @@ export function SetuConnect({ onSuccess, className }: Props) {
     }).catch(() => {})
   }, [])
 
-  // Poll for consent approval while pending
+  // Poll for consent approval while pending — stop after 2 minutes
   useEffect(() => {
     if (status !== 'pending') return
+
+    const TIMEOUT_MS = 2 * 60 * 1000
+    const startedAt = Date.now()
     const interval = setInterval(async () => {
+      if (Date.now() - startedAt >= TIMEOUT_MS) {
+        clearInterval(interval)
+        await coreApi.post('/api/v1/setu/consent/expire').catch(() => {})
+        setStatus('error')
+        setErrorMsg('Consent approval timed out. Please try again.')
+        return
+      }
       try {
         const { data } = await coreApi.get('/api/v1/setu/consent/status')
         if (data.status === 'ACTIVE') {
           setStatus('active')
+          clearInterval(interval)
+        } else if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+          setStatus('error')
+          setErrorMsg('Consent was not approved. Please try again.')
           clearInterval(interval)
         }
       } catch {}

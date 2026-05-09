@@ -62,6 +62,16 @@ body::before {
   font-feature-settings: "tnum", "ss01";
 }
 
+/* ── Global number display class ────────────── */
+/* Change here to update every stat/metric number across the app */
+.num {
+  /* font-family: 'Syne', system-ui, sans-serif; */
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
 .font-syne,
 [class*="font-syne"] {
   font-family: 'Syne', system-ui, sans-serif;

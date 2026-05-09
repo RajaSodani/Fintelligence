@@ -3,16 +3,13 @@ import type { LucideIcon } from 'lucide-react'
 import { useClerk } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { cn } from '@/lib/utils'
 import { useUser } from '@/hooks/useUser'
+import { useAccounts } from '@/hooks/useAccounts'
 import { useState } from 'react'
 import { SetuConnect } from '@/components/SetuConnect'
 import { UpgradeModal } from '@/components/UpgradeModal'
-
-const connectedBanks = [
-  { name: 'HDFC Bank',     type: 'Savings + Salary',    connected: true,  balance: '₹2,14,320' },
-  { name: 'Zerodha Kite',  type: 'Equity Brokerage',    connected: true,  balance: '₹4,32,840' },
-]
 
 const planFeatures = {
   free: [
@@ -49,6 +46,7 @@ function Section({ title, icon: Icon, children }: { title: string; icon: LucideI
 export function Settings() {
   const { user } = useUser()
   const { signOut } = useClerk()
+  const { accounts, loading: accountsLoading, refetch: refetchAccounts } = useAccounts()
   const [notifications, setNotifications] = useState({ priceAlerts: true, aiInsights: true, weeklyReport: false })
   const [upgradeOpen, setUpgradeOpen] = useState(false)
 
@@ -100,29 +98,45 @@ export function Settings() {
       {/* Connected Accounts */}
       <Section title="Connected Accounts" icon={Building2}>
         <div className="flex flex-col gap-3 mb-4">
-          {connectedBanks.map((bank) => (
-            <div
-              key={bank.name}
-              className="flex items-center gap-4 p-4 rounded-xl bg-[var(--bg3)] border border-[var(--border)]"
-            >
-              <div className="w-10 h-10 rounded-xl bg-[var(--bg4)] flex items-center justify-center flex-shrink-0">
-                <Building2 size={16} className="text-[var(--text2)]" />
-              </div>
-              <div className="flex-1">
-                <p className="font-dm text-[15px] font-medium text-[var(--text)]">{bank.name}</p>
-                <p className="font-mono text-xs text-[var(--text3)]">{bank.type}</p>
-              </div>
-              <div className="text-right">
-                <p className="font-mono text-[14px] text-[var(--text)]">{bank.balance}</p>
-                <Badge variant="green" dot className="mt-1">Connected</Badge>
-              </div>
-              <ChevronRight size={16} className="text-[var(--text3)]" />
+          {accountsLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <LoadingSpinner />
             </div>
-          ))}
+          ) : accounts.length === 0 ? (
+            <p className="font-mono text-xs text-[var(--text3)] py-2">No accounts linked yet.</p>
+          ) : (
+            accounts.map((acc) => {
+              const label = [acc.fipId, acc.subType ?? acc.type].filter(Boolean).join(' · ')
+              const maskedNum = acc.maskedAccNumber ? `····${acc.maskedAccNumber.slice(-4)}` : ''
+              return (
+                <div
+                  key={acc.id}
+                  className="flex items-center gap-4 p-4 rounded-xl bg-[var(--bg3)] border border-[var(--border)]"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-[var(--bg4)] flex items-center justify-center flex-shrink-0">
+                    <Building2 size={16} className="text-[var(--text2)]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-dm text-[15px] font-medium text-[var(--text)] truncate">{acc.name}</p>
+                    <p className="font-mono text-xs text-[var(--text3)]">
+                      {label}{maskedNum ? ` · ${maskedNum}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-mono text-[14px] text-[var(--text)]">
+                      ₹{acc.balance.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                    </p>
+                    <Badge variant="green" dot className="mt-1">Connected</Badge>
+                  </div>
+                  <ChevronRight size={16} className="text-[var(--text3)]" />
+                </div>
+              )
+            })
+          )}
 
           <div className="p-4 rounded-xl border border-dashed border-[var(--border2)]">
             <p className="font-mono text-xs text-[var(--text3)] mb-3">Setu AA · RBI-regulated · All major Indian banks</p>
-            <SetuConnect />
+            <SetuConnect onSuccess={refetchAccounts} />
           </div>
         </div>
       </Section>

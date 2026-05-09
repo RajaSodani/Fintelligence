@@ -8,8 +8,15 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { SpendingDonut } from '@/components/charts/SpendingDonut'
 import { useTransactions } from '@/hooks/useTransactions'
 import { useTransactionSummary } from '@/hooks/useTransactionSummary'
+import { useNetWorth } from '@/hooks/useNetWorth'
 import { useChat } from '@/hooks/useChat'
 import { cn, formatCompact } from '@/lib/utils'
+
+const EMPTY_TREND = [
+  { month: 'Nov', value: 0 }, { month: 'Dec', value: 0 }, { month: 'Jan', value: 0 },
+  { month: 'Feb', value: 0 }, { month: 'Mar', value: 0 }, { month: 'Apr', value: 0 },
+  { month: 'May', value: 0 },
+]
 
 const CATEGORY_COLORS: Record<string, string> = {
   'Food & Dining':      'var(--green)',
@@ -23,15 +30,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Other':              'var(--text3)',
 }
 
-const NET_WORTH_TREND = [
-  { month: 'Nov', value: 3820000 },
-  { month: 'Dec', value: 3960000 },
-  { month: 'Jan', value: 4050000 },
-  { month: 'Feb', value: 4120000 },
-  { month: 'Mar', value: 4380000 },
-  { month: 'Apr', value: 4540000 },
-  { month: 'May', value: 4860000 },
-]
 
 function WorthTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
   if (!active || !payload?.length) return null
@@ -49,6 +47,7 @@ export function Dashboard() {
 
   const { transactions, loading: txLoading } = useTransactions({ limit: 8 })
   const { byCategory, comparison, loading: summaryLoading } = useTransactionSummary()
+  const { netWorth, trend, loading: nwLoading } = useNetWorth()
 
   const donutData = byCategory
     .filter((c) => c.category !== 'Income')
@@ -81,10 +80,10 @@ export function Dashboard() {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
           label="Net Worth"
-          value={formatCompact(4_860_000)}
-          change="+4.8% this month"
-          changeType="up"
-          sub="↑ ₹2.1L from April"
+          value={nwLoading ? '...' : formatCompact(netWorth)}
+          change={netWorth === 0 && !nwLoading ? 'Connect a bank' : 'across all accounts'}
+          changeType={netWorth >= 0 ? 'up' : 'down'}
+          sub={nwLoading ? '' : netWorth === 0 ? 'No accounts linked' : `₹${netWorth.toLocaleString('en-IN')}`}
           accent
         />
         <StatCard
@@ -117,17 +116,37 @@ export function Dashboard() {
           <div className="flex items-start justify-between mb-5">
             <div>
               <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1">Net Worth Trend</p>
-              <p className="num text-[28px] text-[var(--text)]">{formatCompact(4_860_000)}</p>
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <ArrowUpRight size={13} className="text-[var(--green)]" />
-                <span className="font-mono text-xs text-[var(--green)]">+₹10.4L since Nov 2024</span>
-              </div>
+              <p className="num text-[28px] text-[var(--text)]">{nwLoading ? '...' : formatCompact(netWorth)}</p>
+              {(() => {
+                const first = trend[0]?.value ?? 0
+                const last = trend[trend.length - 1]?.value ?? 0
+                const delta = last - first
+                const pct = first !== 0 ? ((delta / Math.abs(first)) * 100).toFixed(1) : null
+                return delta !== 0 ? (
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <ArrowUpRight size={13} className={delta >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]'} />
+                    <span className={`font-mono text-xs ${delta >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]'}`}>
+                      {delta >= 0 ? '+' : ''}{formatCompact(delta)} over 6 months
+                      {pct ? ` (${delta >= 0 ? '+' : ''}${pct}%)` : ''}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="font-mono text-xs text-[var(--text3)] mt-1.5">Connect a bank to see trend</p>
+                )
+              })()}
             </div>
-            <Badge variant="green" dot>+27.2% YTD</Badge>
+            {(() => {
+              const first = trend[0]?.value ?? 0
+              const last = trend[trend.length - 1]?.value ?? 0
+              const pct = first !== 0 ? ((last - first) / Math.abs(first) * 100).toFixed(1) : null
+              return pct ? (
+                <Badge variant={parseFloat(pct) >= 0 ? 'green' : 'red'} dot>{parseFloat(pct) >= 0 ? '+' : ''}{pct}% 6mo</Badge>
+              ) : null
+            })()}
           </div>
           <div style={{ height: 140 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={NET_WORTH_TREND} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+              <AreaChart data={trend.length > 0 ? trend : EMPTY_TREND} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
                 <defs>
                   <linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#00e87a" stopOpacity={0.18} />
