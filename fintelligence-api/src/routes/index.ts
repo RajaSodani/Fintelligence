@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import usersRouter from './users'
 import transactionsRouter from './transactions'
-import plaidRouter from './plaid'
+import setuRouter from './setu'
 import stripeRouter from './stripe'
 
 const router = Router()
@@ -12,7 +12,7 @@ router.get('/health', (_req, res) => {
 
 router.use('/users', usersRouter)
 router.use('/transactions', transactionsRouter)
-router.use('/plaid', plaidRouter)
+router.use('/setu', setuRouter)
 router.use('/stripe', stripeRouter)
 
 export default router

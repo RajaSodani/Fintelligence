@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
 import { useUser } from '@/hooks/useUser'
 import { useState } from 'react'
-import { PlaidConnect } from '@/components/PlaidConnect'
+import { SetuConnect } from '@/components/SetuConnect'
 import { UpgradeModal } from '@/components/UpgradeModal'
 
 const connectedBanks = [
@@ -121,8 +121,8 @@ export function Settings() {
           ))}
 
           <div className="p-4 rounded-xl border border-dashed border-[var(--border2)]">
-            <p className="font-mono text-xs text-[var(--text3)] mb-3">Plaid · 10,000+ institutions</p>
-            <PlaidConnect />
+            <p className="font-mono text-xs text-[var(--text3)] mb-3">Setu AA · RBI-regulated · All major Indian banks</p>
+            <SetuConnect />
           </div>
         </div>
       </Section>
