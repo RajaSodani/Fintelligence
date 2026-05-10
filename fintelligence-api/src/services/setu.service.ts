@@ -18,10 +18,10 @@ export async function createConsent(
   const to = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
 
   const { data } = await http.post('/consents', {
-    vua: `${mobileNumber}@setu`,
-    consentDuration: { unit: 'MONTH', value: '12' },
+    vua: `${mobileNumber}@onemoney`,
+    consentDuration: { unit: 'MONTH', value: 12 },
     dataRange: { from, to },
-    context: [],
+    dataLife: { unit: 'MONTH', value: 0 },
     redirectUrl,
   })
 
@@ -215,10 +215,24 @@ export async function syncUserData(userId: string): Promise<{ sessionId: string 
   if (user.setuConsentStatus !== 'ACTIVE') throw Object.assign(new Error('Consent not yet approved'), { statusCode: 400 })
 
   const session = await createDataSession(user.setuConsentId)
-  // If session is immediately COMPLETED (sandbox), fetch right away
-  if (session.status === 'COMPLETED') {
+
+  // Poll session until COMPLETED/PARTIAL — webhooks don't reach localhost in dev
+  const MAX_ATTEMPTS = 15
+  const INTERVAL_MS = 2000
+  let attempts = 0
+  let sessionStatus = session.status
+
+  while (sessionStatus !== 'COMPLETED' && sessionStatus !== 'PARTIAL' && sessionStatus !== 'FAILED' && sessionStatus !== 'EXPIRED' && attempts < MAX_ATTEMPTS) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS))
+    const { data: live } = await http.get(`/sessions/${session.id}`)
+    sessionStatus = live.status ?? sessionStatus
+    attempts++
+  }
+
+  if (sessionStatus === 'COMPLETED' || sessionStatus === 'PARTIAL') {
     await fetchAndStoreSessionData(session.id, user.id)
   }
+
   return { sessionId: session.id }
 }
 

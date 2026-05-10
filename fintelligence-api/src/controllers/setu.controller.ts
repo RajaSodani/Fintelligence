@@ -16,12 +16,55 @@ export async function initiateConsent(req: Request, res: Response): Promise<void
 export async function getConsentStatus(req: Request, res: Response): Promise<void> {
   const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
+  let status = user.setuConsentStatus ?? 'NONE'
+
+  // If still pending, poll Setu live — webhooks don't reach localhost in dev
+  if (user.setuConsentId && status === 'PENDING') {
+    try {
+      const live = await setuService.getConsentStatus(user.setuConsentId)
+      const liveStatus: string = live.status ?? status
+
+      if (liveStatus !== status) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { setuConsentStatus: liveStatus },
+        })
+        status = liveStatus
+
+        // If just turned ACTIVE, persist linked accounts from the consent detail
+        if (liveStatus === 'ACTIVE' && live.detail?.accounts?.length) {
+          await setuService.handleConsentWebhook({
+            type: 'CONSENT_STATUS_UPDATE',
+            consentId: user.setuConsentId,
+            data: { status: liveStatus, detail: live.detail },
+            timestamp: new Date().toISOString(),
+          }).catch(console.error)
+        }
+      }
+    } catch (e) {
+      console.error('[setu] live status check failed:', e)
+    }
+  }
 
   res.json({
     consentId: user.setuConsentId ?? null,
-    status: user.setuConsentStatus ?? 'NONE',
+    status,
     consentUrl: user.setuConsentUrl ?? null,
   })
+}
+
+export async function expireConsent(req: Request, res: Response): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  if (user.setuConsentStatus === 'PENDING') {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { setuConsentStatus: 'EXPIRED' },
+    })
+  }
+
+  res.json({ success: true })
 }
 
 export async function syncData(req: Request, res: Response): Promise<void> {

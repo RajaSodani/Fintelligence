@@ -78,6 +78,70 @@ export async function getTransactionSummary(req: Request, res: Response): Promis
   })
 }
 
+export async function getNetWorth(req: Request, res: Response): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  const accounts = await prisma.account.findMany({ where: { userId: user.id } })
+
+  const ASSET_TYPES = ['depository', 'investment', 'brokerage']
+  const LIABILITY_TYPES = ['credit', 'loan']
+
+  const assets = accounts.filter((a) => ASSET_TYPES.includes(a.type.toLowerCase()))
+  const liabilities = accounts.filter((a) => LIABILITY_TYPES.includes(a.type.toLowerCase()))
+
+  const totalAssets = assets.reduce((s, a) => s + a.balance, 0)
+  const totalLiabilities = liabilities.reduce((s, a) => s + a.balance, 0)
+  const netWorth = totalAssets - totalLiabilities
+
+  // Snapshot today's net worth for trend tracking
+  if (accounts.length > 0) {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const primaryAccount = accounts[0]
+    const existingSnap = await prisma.balanceSnapshot.findFirst({
+      where: { accountId: primaryAccount.id, takenAt: { gte: today } },
+    })
+    if (!existingSnap) {
+      await prisma.balanceSnapshot.create({
+        data: { accountId: primaryAccount.id, balance: primaryAccount.balance, netWorth },
+      })
+    }
+  }
+
+  // Build cashflow-derived trend (6 months) anchored to current net worth
+  const now = new Date()
+  const allTx = await prisma.transaction.findMany({ where: { userId: user.id, pending: false } })
+
+  const monthlyNet: number[] = []
+  for (let i = 5; i >= 0; i--) {
+    const d = subMonths(now, i)
+    const start = startOfMonth(d)
+    const end = endOfMonth(d)
+    const txs = allTx.filter((t) => t.date >= start && t.date <= end)
+    const income = txs.filter((t) => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0)
+    const expenses = txs.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)
+    monthlyNet.push(income - expenses)
+  }
+
+  // Walk backwards from current net worth
+  const trend: Array<{ month: string; value: number }> = []
+  let running = netWorth
+  for (let i = 5; i >= 0; i--) {
+    const d = subMonths(now, i)
+    trend.push({ month: format(d, 'MMM'), value: Math.round(running) })
+    if (i > 0) running -= monthlyNet[5 - i + 1] ?? 0
+  }
+
+  res.json({
+    netWorth,
+    totalAssets,
+    totalLiabilities,
+    accounts: accounts.map((a) => ({ id: a.id, name: a.name, type: a.type, balance: a.balance })),
+    trend,
+  })
+}
+
 export async function getCashflow(req: Request, res: Response): Promise<void> {
   const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
