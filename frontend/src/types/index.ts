@@ -38,7 +38,7 @@ export interface PriceAlert {
   status: 'NEAR' | 'WATCH' | 'RISK'
 }
 
-export type AgentState = 'pending' | 'running' | 'done'
+export type AgentState = 'pending' | 'running' | 'done' | 'error'
 
 export interface AgentStatus {
   id: string
