@@ -25,7 +25,7 @@ export async function createCheckoutSession(
     line_items: [
       {
         price_data: {
-          currency: 'usd',
+          currency: 'inr',
           product_data: { name: 'Fintelligence Pro', description: 'Unlimited AI chat, multi-agent research & more' },
           unit_amount: 999,
           recurring: { interval: 'month' },
