@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Search, Newspaper, BarChart2, MessageSquare, Brain, ArrowRight, CheckCircle2, Loader2, AlertCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -72,8 +73,14 @@ function ratingVariant(rating: string): 'green' | 'amber' | 'red' | 'blue' {
 }
 
 export function Research() {
-  const [ticker, setTicker] = useState('')
+  const [searchParams] = useSearchParams()
+  const [ticker, setTicker] = useState(() => searchParams.get('ticker') ?? '')
   const { agentStates, agentData, report, isRunning, error, runResearch, reset } = useResearch()
+
+  useEffect(() => {
+    const t = searchParams.get('ticker')
+    if (t && t !== ticker) setTicker(t)
+  }, [searchParams])
 
   const isDone = agentStates.thesis === 'done'
 
