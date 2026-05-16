@@ -6,6 +6,7 @@ import morgan from 'morgan'
 import dotenv from 'dotenv'
 import apiRouter from './routes'
 import { errorHandler } from './middleware/errorHandler'
+import { startAlertChecker } from './jobs/alertChecker'
 
 dotenv.config()
 
@@ -31,6 +32,7 @@ app.use(errorHandler)
 
 app.listen(PORT, () => {
   console.log(`🚀 Core API running on port ${PORT}`)
+  startAlertChecker()
 })
 
 export default app
