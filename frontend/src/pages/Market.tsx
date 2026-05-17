@@ -1,43 +1,30 @@
-import { TrendingUp, TrendingDown, Plus, Bell } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { TrendingUp, TrendingDown, Plus, Bell, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/Badge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { OHLCChart } from '@/components/charts/OHLCChart'
+import { usePortfolio } from '@/hooks/usePortfolio'
+import { useWatchlist } from '@/hooks/useWatchlist'
+import { useAlerts } from '@/hooks/useAlerts'
+import { useMarketStrip } from '@/hooks/useMarketData'
+import { cn, formatCurrency, formatPercent } from '@/lib/utils'
 import type { Holding, WatchlistItem, PriceAlert } from '@/types'
 
-const mockHoldings: Holding[] = [
-  { ticker: 'HDFCBANK', name: 'HDFC Bank Ltd',        qty: 50,  avgCost: 1480,  ltp: 1628,  pnl: 7400,   pnlPercent: 10.00,  sparkline: [1480,1510,1490,1540,1555,1590,1628] },
-  { ticker: 'INFY',     name: 'Infosys Ltd',           qty: 30,  avgCost: 1780,  ltp: 1642,  pnl: -4140,  pnlPercent: -7.75,  sparkline: [1780,1750,1720,1690,1660,1648,1642] },
-  { ticker: 'RELIANCE', name: 'Reliance Industries',  qty: 20,  avgCost: 2640,  ltp: 2890,  pnl: 5000,   pnlPercent: 9.47,   sparkline: [2640,2680,2730,2760,2800,2850,2890] },
-  { ticker: 'GOLDBEES', name: 'Nippon Gold ETF',      qty: 100, avgCost: 56.4,  ltp: 61.2,  pnl: 480,    pnlPercent: 8.51,   sparkline: [56.4,57.2,57.8,58.5,59.2,60.4,61.2] },
-  { ticker: 'BAJFINANCE',name: 'Bajaj Finance Ltd',   qty: 10,  avgCost: 6800,  ltp: 7124,  pnl: 3240,   pnlPercent: 4.76,   sparkline: [6800,6850,6920,6980,7050,7090,7124] },
-]
-
-const mockWatchlist: WatchlistItem[] = [
-  { ticker: 'TCS',      name: 'Tata Consultancy',   price: 3842, change: 44.5,  changePercent: 1.17,  sparkline: [3780,3800,3815,3830,3820,3838,3842] },
-  { ticker: 'WIPRO',    name: 'Wipro Ltd',           price: 512,  change: 8.2,   changePercent: 1.63,  sparkline: [498,500,503,506,508,510,512] },
-  { ticker: 'TITAN',    name: 'Titan Company',       price: 3560, change: -22,   changePercent: -0.61, sparkline: [3590,3580,3572,3568,3562,3558,3560] },
-  { ticker: 'ASIANPAINT',name:'Asian Paints',        price: 2610, change: -18.5, changePercent: -0.70, sparkline: [2640,2630,2620,2615,2610,2608,2610] },
-]
-
-const mockAlerts: PriceAlert[] = [
-  { id: '1', ticker: 'HDFCBANK',   condition: 'Near 12-month target',        targetPrice: 1700,  currentPrice: 1628, status: 'NEAR' },
-  { id: '2', ticker: 'INFY',       condition: 'Approaching key support',       targetPrice: 1600,  currentPrice: 1642, status: 'WATCH' },
-  { id: '3', ticker: 'NIFTY 50',   condition: 'RSI overbought at 78.4',        targetPrice: 24500, currentPrice: 24280, status: 'RISK' },
-]
-
-const alertMeta: Record<string, { variant: 'amber' | 'blue' | 'red' }> = {
-  NEAR: { variant: 'amber' }, WATCH: { variant: 'blue' }, RISK: { variant: 'red' },
-}
+// ─── Sparkline ───────────────────────────────────────────────────────────────
 
 function Sparkline({ data, up }: { data: number[]; up: boolean }) {
+  if (!data.length) return <div className="w-[72px] h-[32px]" />
   const min = Math.min(...data), max = Math.max(...data), range = max - min || 1
   const w = 72, h = 32
   const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * (h - 4) - 2}`).join(' ')
+  const id = `sg-${up ? 'up' : 'dn'}-${data[0]}`
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
       <defs>
-        <linearGradient id={`sg-${up}`} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={up ? '#00e87a' : '#ff4d6a'} stopOpacity={0.25} />
           <stop offset="100%" stopColor={up ? '#00e87a' : '#ff4d6a'} stopOpacity={0} />
         </linearGradient>
@@ -47,57 +34,460 @@ function Sparkline({ data, up }: { data: number[]; up: boolean }) {
   )
 }
 
+// ─── Market Strip ─────────────────────────────────────────────────────────────
+
+function MarketStrip() {
+  const { quotes, loading } = useMarketStrip(30_000)
+
+  if (loading && !quotes.length) return (
+    <div className="rounded-2xl border border-[var(--border2)] bg-[var(--bg2)] px-5 py-3 flex items-center gap-3">
+      <LoadingSpinner size="sm" />
+      <span className="font-mono text-xs text-[var(--text3)]">Loading market data…</span>
+    </div>
+  )
+
+  return (
+    <div className="rounded-2xl border border-[var(--border2)] bg-[var(--bg2)] overflow-hidden">
+      <div className="flex items-center gap-6 px-5 py-3 overflow-x-auto no-scrollbar">
+        {quotes.map((q) => {
+          const up = q.changePercent >= 0
+          return (
+            <div key={q.ticker} className="flex items-center gap-3 flex-shrink-0">
+              <div>
+                <p className="font-mono text-[13px] font-medium text-[var(--text)] whitespace-nowrap">{q.ticker}</p>
+                <p className="font-mono text-2xs text-[var(--text3)] whitespace-nowrap truncate max-w-[110px]">{q.companyName}</p>
+              </div>
+              <div className="text-right">
+                <p className="font-mono text-[13px] text-[var(--text)]">
+                  {q.ticker.startsWith('^') ? q.price.toLocaleString('en-IN') : `₹${q.price.toLocaleString('en-IN')}`}
+                </p>
+                <p className={cn('font-mono text-2xs', up ? 'text-[var(--green)]' : 'text-[var(--red)]')}>
+                  {up ? '+' : ''}{q.changePercent.toFixed(2)}%
+                </p>
+              </div>
+              {q !== quotes[quotes.length - 1] && (
+                <div className="w-px h-8 bg-[var(--border)] flex-shrink-0 ml-3" />
+              )}
+            </div>
+          )
+        })}
+        <span className="font-mono text-2xs text-[var(--text3)] flex-shrink-0 ml-auto">Refreshes every 30s</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Add Holding Modal ────────────────────────────────────────────────────────
+
+function AddHoldingModal({ onAdd, onClose }: {
+  onAdd: (ticker: string, qty: number, price: number) => Promise<void>
+  onClose: () => void
+}) {
+  const [ticker, setTicker]   = useState('')
+  const [qty, setQty]         = useState('')
+  const [price, setPrice]     = useState('')
+  const [adding, setAdding]   = useState(false)
+  const [err, setErr]         = useState('')
+
+  const handleSubmit = async () => {
+    if (!ticker.trim() || !qty || !price) { setErr('All fields required'); return }
+    const q = parseFloat(qty), p = parseFloat(price)
+    if (isNaN(q) || isNaN(p) || q <= 0 || p <= 0) { setErr('Enter valid numbers'); return }
+    setAdding(true)
+    try {
+      await onAdd(ticker.trim().toUpperCase(), q, p)
+      onClose()
+    } catch {
+      setErr('Failed to add holding')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(7,9,15,0.7)', backdropFilter: 'blur(8px)' }}>
+      <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-6 w-full max-w-sm shadow-card">
+        <div className="flex items-center justify-between mb-5">
+          <p className="font-syne font-bold text-[16px] text-[var(--text)]">Add Holding</p>
+          <button onClick={onClose} className="text-[var(--text3)] hover:text-[var(--text)] transition-colors"><X size={18} /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          {[
+            { label: 'Ticker', value: ticker, set: setTicker, placeholder: 'e.g. RELIANCE, TCS, INFY' },
+            { label: 'Quantity', value: qty, set: setQty, placeholder: 'e.g. 10' },
+            { label: 'Avg Buy Price (₹)', value: price, set: setPrice, placeholder: 'e.g. 2800' },
+          ].map(({ label, value, set, placeholder }) => (
+            <div key={label}>
+              <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1.5">{label}</p>
+              <input
+                value={value}
+                onChange={(e) => { set(e.target.value); setErr('') }}
+                placeholder={placeholder}
+                className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-4 py-2.5 font-dm text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors"
+              />
+            </div>
+          ))}
+          {err && <p className="font-mono text-xs text-[var(--red)]">{err}</p>}
+          <Button variant="primary" size="md" loading={adding} onClick={handleSubmit}>Add Holding</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Create Alert Modal ───────────────────────────────────────────────────────
+
+function CreateAlertModal({ onCreate, onClose }: {
+  onCreate: (ticker: string, targetPrice: number, condition: 'ABOVE' | 'BELOW') => Promise<void>
+  onClose: () => void
+}) {
+  const [ticker, setTicker]       = useState('')
+  const [price, setPrice]         = useState('')
+  const [condition, setCondition] = useState<'ABOVE' | 'BELOW'>('ABOVE')
+  const [creating, setCreating]   = useState(false)
+  const [err, setErr]             = useState('')
+
+  const handleSubmit = async () => {
+    if (!ticker.trim() || !price) { setErr('All fields required'); return }
+    const p = parseFloat(price)
+    if (isNaN(p) || p <= 0) { setErr('Enter a valid price'); return }
+    setCreating(true)
+    try {
+      await onCreate(ticker.trim().toUpperCase(), p, condition)
+      onClose()
+    } catch {
+      setErr('Failed to create alert')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(7,9,15,0.7)', backdropFilter: 'blur(8px)' }}>
+      <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-6 w-full max-w-sm shadow-card">
+        <div className="flex items-center justify-between mb-5">
+          <p className="font-syne font-bold text-[16px] text-[var(--text)]">Set Price Alert</p>
+          <button onClick={onClose} className="text-[var(--text3)] hover:text-[var(--text)] transition-colors"><X size={18} /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
+            <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1.5">Ticker</p>
+            <input
+              value={ticker}
+              onChange={(e) => { setTicker(e.target.value); setErr('') }}
+              placeholder="e.g. TCS, RELIANCE, INFY"
+              className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-4 py-2.5 font-dm text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors"
+            />
+          </div>
+          <div>
+            <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1.5">Condition</p>
+            <div className="flex gap-2">
+              {(['ABOVE', 'BELOW'] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCondition(c)}
+                  className={cn(
+                    'flex-1 py-2.5 rounded-xl font-mono text-sm font-medium transition-all',
+                    condition === c
+                      ? c === 'ABOVE' ? 'bg-[rgba(0,232,122,0.15)] border border-[rgba(0,232,122,0.35)] text-[var(--green)]'
+                                      : 'bg-[rgba(255,77,106,0.12)] border border-[rgba(255,77,106,0.3)] text-[var(--red)]'
+                      : 'bg-[var(--bg3)] border border-[var(--border)] text-[var(--text2)] hover:bg-[var(--bg4)]',
+                  )}
+                >
+                  {c === 'ABOVE' ? '↑ Above' : '↓ Below'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1.5">Target Price (₹)</p>
+            <input
+              value={price}
+              onChange={(e) => { setPrice(e.target.value); setErr('') }}
+              placeholder="e.g. 3000"
+              className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-4 py-2.5 font-dm text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors"
+            />
+          </div>
+          {err && <p className="font-mono text-xs text-[var(--red)]">{err}</p>}
+          <Button variant="primary" size="md" loading={creating} onClick={handleSubmit}>Create Alert</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Holdings Table ───────────────────────────────────────────────────────────
+
+function HoldingsTable({
+  holdings,
+  onRowClick,
+  onDelete,
+}: {
+  holdings: Holding[]
+  onRowClick: (ticker: string) => void
+  onDelete: (id: string) => void
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-[var(--border)]">
+            {['Ticker', 'Company', 'Qty', 'Avg Cost', 'LTP', 'P&L', '7d Chart', ''].map((col) => (
+              <th key={col} className="px-4 py-3 text-left font-mono text-2xs text-[var(--text3)] uppercase tracking-wider whitespace-nowrap">
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {holdings.map((h) => (
+            <tr
+              key={h.id}
+              className="border-b border-[var(--border)] hover:bg-[var(--bg3)] transition-colors group cursor-pointer"
+              onClick={() => onRowClick(h.ticker)}
+            >
+              <td className="px-4 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[var(--bg4)] flex items-center justify-center flex-shrink-0">
+                    <span className="font-syne font-bold text-[10px] text-[var(--text2)]">{h.ticker[0]}</span>
+                  </div>
+                  <span className="font-mono text-[14px] font-medium text-[var(--text)]">{h.ticker}</span>
+                </div>
+              </td>
+              <td className="px-4 py-3.5">
+                <span className="font-dm text-[13px] text-[var(--text2)] whitespace-nowrap">{h.companyName}</span>
+              </td>
+              <td className="px-4 py-3.5">
+                <span className="font-mono text-[14px] text-[var(--text)]">{h.quantity}</span>
+              </td>
+              <td className="px-4 py-3.5">
+                <span className="font-mono text-[14px] text-[var(--text2)]">{formatCurrency(h.avgBuyPrice)}</span>
+              </td>
+              <td className="px-4 py-3.5">
+                <span className="font-mono text-[14px] font-medium text-[var(--text)]">{formatCurrency(h.ltp)}</span>
+              </td>
+              <td className="px-4 py-3.5">
+                <p className={cn('font-mono text-[14px] font-medium leading-tight', h.pnl >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]')}>
+                  {h.pnl >= 0 ? '+' : '−'}{formatCurrency(Math.abs(h.pnl))}
+                </p>
+                <p className={cn('font-mono text-xs mt-0.5', h.pnl >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]')} style={{ opacity: 0.75 }}>
+                  {formatPercent(h.pnlPercent)}
+                </p>
+              </td>
+              <td className="px-4 py-3.5">
+                <Sparkline data={h.sparkline} up={h.pnl >= 0} />
+              </td>
+              <td className="px-4 py-3.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(h.id) }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text3)] hover:text-[var(--red)]"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── Watchlist Panel ──────────────────────────────────────────────────────────
+
+function WatchlistPanel({
+  items,
+  onRowClick,
+  onRemove,
+  onAdd,
+}: {
+  items: WatchlistItem[]
+  onRowClick: (ticker: string) => void
+  onRemove: (id: string) => void
+  onAdd: (ticker: string) => void
+}) {
+  const [input, setInput] = useState('')
+
+  const handleAdd = () => {
+    const t = input.trim()
+    if (!t) return
+    onAdd(t)
+    setInput('')
+  }
+
+  return (
+    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
+      <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+        <p className="font-syne font-bold text-[15px] text-[var(--text)]">Watchlist</p>
+      </div>
+      <div className="divide-y divide-[var(--border)]">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--bg3)] transition-colors cursor-pointer group"
+            onClick={() => onRowClick(item.ticker)}
+          >
+            <div className="flex-1 min-w-0">
+              <p className="font-mono text-[14px] font-medium text-[var(--text)]">{item.ticker}</p>
+              <p className="font-dm text-xs text-[var(--text3)] truncate">{item.companyName}</p>
+            </div>
+            <Sparkline data={item.sparkline} up={item.change >= 0} />
+            <div className="text-right">
+              <p className="font-mono text-[14px] font-medium text-[var(--text)]">{formatCurrency(item.price)}</p>
+              <p className={cn('font-mono text-xs', item.change >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]')}>
+                {formatPercent(item.changePercent)}
+              </p>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onRemove(item.id) }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text3)] hover:text-[var(--red)]"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+        {items.length === 0 && (
+          <p className="font-mono text-xs text-[var(--text3)] px-5 py-4">No tickers added yet.</p>
+        )}
+      </div>
+      <div className="px-5 py-3 border-t border-[var(--border)] flex gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="Add ticker (e.g. WIPRO, TITAN)"
+          className="flex-1 bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3 py-2 font-mono text-xs text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors"
+        />
+        <Button variant="ghost" size="sm" icon={Plus} onClick={handleAdd}>Add</Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Alerts Panel ─────────────────────────────────────────────────────────────
+
+function AlertsPanel({ alerts, onDelete }: { alerts: PriceAlert[]; onDelete: (id: string) => void }) {
+  return (
+    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
+      <div className="px-5 py-4 border-b border-[var(--border)]">
+        <p className="font-syne font-bold text-[15px] text-[var(--text)]">Price Alerts</p>
+      </div>
+      <div className="divide-y divide-[var(--border)]">
+        {alerts.map((alert) => {
+          const distPct = alert.distancePercent ?? 0
+          const up = alert.condition === 'ABOVE'
+          return (
+            <div key={alert.id} className="px-5 py-4 hover:bg-[var(--bg3)] transition-colors group">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-mono text-[14px] font-medium text-[var(--text)]">{alert.ticker}</span>
+                    {alert.isTriggered ? (
+                      <Badge variant="green" dot>Triggered</Badge>
+                    ) : (
+                      <Badge variant={up ? 'blue' : 'amber'} dot>{alert.condition}</Badge>
+                    )}
+                  </div>
+                  <p className="font-dm text-xs text-[var(--text3)]">
+                    Target: {formatCurrency(alert.targetPrice)} · Current: {formatCurrency(alert.currentPrice)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!alert.isTriggered && (
+                    <p className="font-mono text-xs text-[var(--text3)]">{distPct.toFixed(1)}% away</p>
+                  )}
+                  <button
+                    onClick={() => onDelete(alert.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text3)] hover:text-[var(--red)]"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+              {!alert.isTriggered && (
+                <div className="h-1 bg-[var(--bg4)] rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.max(4, Math.min(100, 100 - distPct * 3))}%`,
+                      background: up ? 'var(--blue)' : 'var(--amber)',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {alerts.length === 0 && (
+          <p className="font-mono text-xs text-[var(--text3)] px-5 py-4">No alerts set.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Market page ──────────────────────────────────────────────────────────────
+
 export function Market() {
-  const totalValue = mockHoldings.reduce((s, h) => s + h.ltp * h.qty, 0)
-  const totalPnl   = mockHoldings.reduce((s, h) => s + h.pnl, 0)
-  const totalPnlPct = (totalPnl / (totalValue - totalPnl)) * 100
-  const dayPnl = 4280
+  const navigate = useNavigate()
+  const portfolio  = usePortfolio()
+  const watchlist  = useWatchlist()
+  const alertsHook = useAlerts()
+
+  const [showAddHolding, setShowAddHolding]   = useState(false)
+  const [showAddAlert, setShowAddAlert]       = useState(false)
+  const [chartTicker, setChartTicker]         = useState<string | null>(null)
+
+  const { holdings, totalValue, totalPnl, totalPnlPercent, dayPnl, loading: pLoading } = portfolio
+
+  const handleTickerClick = (ticker: string) => setChartTicker(ticker)
+
+  const handleResearch = (ticker: string) => {
+    navigate(`/research?ticker=${encodeURIComponent(ticker)}`)
+  }
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Portfolio hero */}
-      <div className="rounded-2xl p-6 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%)', border: '1px solid var(--border2)' }}>
-        <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 85% 50%, rgba(0,232,122,0.06) 0%, transparent 60%)' }} />
+      {/* Market strip */}
+      <MarketStrip />
 
+      {/* Portfolio hero */}
+      <div
+        className="rounded-2xl p-6 relative overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%)', border: '1px solid var(--border2)' }}
+      >
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 85% 50%, rgba(0,232,122,0.06) 0%, transparent 60%)' }} />
         <div className="relative flex flex-wrap items-end gap-8">
           <div>
             <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1">Portfolio Value</p>
             <p className="font-syne font-extrabold text-[40px] text-[var(--text)] leading-none">
-              ₹{(totalValue / 100000).toFixed(2)}L
+              {pLoading ? '…' : `₹${(totalValue / 100000).toFixed(2)}L`}
             </p>
           </div>
 
           <div className="flex gap-6 mb-1">
-            <div>
-              <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-wider mb-1">Day P&L</p>
-              <div className="flex items-center gap-1.5">
-                <TrendingUp size={14} className="text-[var(--green)]" />
-                <span className="font-mono text-[16px] font-medium text-[var(--green)]">+₹{dayPnl.toLocaleString('en-IN')}</span>
+            {[
+              { label: 'Day P&L',       value: dayPnl,          up: dayPnl >= 0 },
+              { label: 'Total Return',  value: totalPnlPercent, up: totalPnlPercent >= 0, isPercent: true },
+              { label: 'Unrealized P&L',value: totalPnl,        up: totalPnl >= 0 },
+            ].map(({ label, value, up, isPercent }) => (
+              <div key={label}>
+                <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-wider mb-1">{label}</p>
+                <div className="flex items-center gap-1.5">
+                  {up ? <TrendingUp size={14} className="text-[var(--green)]" /> : <TrendingDown size={14} className="text-[var(--red)]" />}
+                  <span className={cn('font-mono text-[16px] font-medium', up ? 'text-[var(--green)]' : 'text-[var(--red)]')}>
+                    {isPercent
+                      ? `${up ? '+' : ''}${value.toFixed(2)}%`
+                      : `${up ? '+' : '−'}${formatCurrency(Math.abs(value))}`}
+                  </span>
+                </div>
               </div>
-            </div>
-            <div>
-              <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-wider mb-1">Total Return</p>
-              <div className="flex items-center gap-1.5">
-                {totalPnlPct >= 0 ? <TrendingUp size={14} className="text-[var(--green)]" /> : <TrendingDown size={14} className="text-[var(--red)]" />}
-                <span className={cn('font-mono text-[16px] font-medium', totalPnlPct >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]')}>
-                  {totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%
-                </span>
-              </div>
-            </div>
-            <div>
-              <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-wider mb-1">Unrealized P&L</p>
-              <div className="flex items-center gap-1.5">
-                <TrendingUp size={14} className="text-[var(--green)]" />
-                <span className="font-mono text-[16px] font-medium text-[var(--green)]">
-                  +₹{totalPnl.toLocaleString('en-IN')}
-                </span>
-              </div>
-            </div>
+            ))}
           </div>
 
           <div className="ml-auto flex gap-2">
-            <Button variant="ghost" size="sm" icon={Plus}>Add Holding</Button>
-            <Button variant="primary" size="sm">Import Portfolio</Button>
+            <Button variant="ghost" size="sm" icon={Plus} onClick={() => setShowAddHolding(true)}>Add Holding</Button>
+            <Button variant="ghost" size="sm" icon={Bell} onClick={() => setShowAddAlert(true)}>Set Alert</Button>
           </div>
         </div>
       </div>
@@ -107,149 +497,92 @@ export function Market() {
         {/* Holdings table */}
         <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
           <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-            <p className="font-syne font-bold text-[15px] text-[var(--text)]">Holdings ({mockHoldings.length})</p>
-            <button className="font-mono text-xs text-[var(--green)] hover:underline">Export CSV</button>
+            <p className="font-syne font-bold text-[15px] text-[var(--text)]">
+              Holdings {pLoading ? '' : `(${holdings.length})`}
+            </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[var(--border)]">
-                  {['Ticker', 'Company', 'Qty', 'Avg Cost', 'LTP', 'P&L', '7d Chart'].map(col => (
-                    <th key={col} className="px-4 py-3 text-left font-mono text-2xs text-[var(--text3)] uppercase tracking-wider whitespace-nowrap">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {mockHoldings.map((h) => (
-                  <tr key={h.ticker} className="border-b border-[var(--border)] hover:bg-[var(--bg3)] transition-colors group cursor-pointer">
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-[var(--bg4)] flex items-center justify-center">
-                          <span className="font-syne font-bold text-[10px] text-[var(--text2)]">{h.ticker[0]}</span>
-                        </div>
-                        <span className="font-mono text-[14px] font-medium text-[var(--text)]">{h.ticker}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="font-dm text-[13px] text-[var(--text2)] whitespace-nowrap">{h.name}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="font-mono text-[14px] text-[var(--text)]">{h.qty}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="font-mono text-[14px] text-[var(--text2)]">₹{h.avgCost.toLocaleString('en-IN')}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="font-mono text-[14px] font-medium text-[var(--text)]">₹{h.ltp.toLocaleString('en-IN')}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <p className={cn('font-mono text-[14px] font-medium leading-tight', h.pnl >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]')}>
-                        {h.pnl >= 0 ? '+' : '−'}₹{Math.abs(h.pnl).toLocaleString('en-IN')}
-                      </p>
-                      <p className={cn('font-mono text-xs mt-0.5', h.pnl >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]')} style={{ opacity: 0.75 }}>
-                        {h.pnlPercent >= 0 ? '+' : ''}{h.pnlPercent.toFixed(2)}%
-                      </p>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <Sparkline data={h.sparkline} up={h.pnl >= 0} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {pLoading ? (
+            <div className="flex items-center justify-center py-12"><LoadingSpinner /></div>
+          ) : holdings.length === 0 ? (
+            <EmptyState
+              icon={TrendingUp}
+              title="No holdings yet"
+              description="Add your first holding to start tracking your portfolio"
+              action={<Button variant="ghost" size="sm" icon={Plus} onClick={() => setShowAddHolding(true)}>Add Holding</Button>}
+            />
+          ) : (
+            <HoldingsTable
+              holdings={holdings}
+              onRowClick={(ticker) => handleTickerClick(ticker)}
+              onDelete={(id) => portfolio.deleteHolding(id)}
+            />
+          )}
         </div>
 
         {/* Right column */}
         <div className="flex flex-col gap-4">
           {/* Watchlist */}
-          <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-              <p className="font-syne font-bold text-[15px] text-[var(--text)]">Watchlist</p>
-              <Button variant="ghost" size="sm" icon={Plus}>Add</Button>
+          {watchlist.loading ? (
+            <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl flex items-center justify-center py-8 shadow-card">
+              <LoadingSpinner />
             </div>
-            <div className="divide-y divide-[var(--border)]">
-              {mockWatchlist.map((item) => (
-                <div key={item.ticker} className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--bg3)] transition-colors cursor-pointer">
-                  <div>
-                    <p className="font-mono text-[14px] font-medium text-[var(--text)]">{item.ticker}</p>
-                    <p className="font-dm text-xs text-[var(--text3)]">{item.name}</p>
-                  </div>
-                  <Sparkline data={item.sparkline} up={item.change >= 0} />
-                  <div className="ml-auto text-right">
-                    <p className="font-mono text-[14px] font-medium text-[var(--text)]">₹{item.price.toLocaleString('en-IN')}</p>
-                    <p className={cn('font-mono text-xs', item.change >= 0 ? 'text-[var(--green)]' : 'text-[var(--red)]')}>
-                      {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          ) : (
+            <WatchlistPanel
+              items={watchlist.items}
+              onRowClick={handleTickerClick}
+              onRemove={(id) => watchlist.removeTicker(id)}
+              onAdd={(ticker) => watchlist.addTicker(ticker)}
+            />
+          )}
 
           {/* Price Alerts */}
-          <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-              <p className="font-syne font-bold text-[15px] text-[var(--text)]">Price Alerts</p>
-              <Button variant="ghost" size="sm" icon={Bell}>Set Alert</Button>
+          {alertsHook.loading ? (
+            <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl flex items-center justify-center py-8 shadow-card">
+              <LoadingSpinner />
             </div>
-            <div className="divide-y divide-[var(--border)]">
-              {mockAlerts.map((alert) => {
-                const distPct = Math.abs((alert.targetPrice - alert.currentPrice) / alert.currentPrice * 100)
-                return (
-                  <div key={alert.id} className="px-5 py-4 hover:bg-[var(--bg3)] transition-colors">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="font-mono text-[14px] font-medium text-[var(--text)]">{alert.ticker}</span>
-                          <Badge variant={alertMeta[alert.status].variant} dot>{alert.status}</Badge>
-                        </div>
-                        <p className="font-dm text-xs text-[var(--text3)]">{alert.condition}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-mono text-[14px] text-[var(--text)]">₹{alert.targetPrice.toLocaleString('en-IN')}</p>
-                        <p className="font-mono text-xs text-[var(--text3)]">{distPct.toFixed(1)}% away</p>
-                      </div>
-                    </div>
-                    <div className="h-1 bg-[var(--bg4)] rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${Math.min(100, 100 - distPct * 5)}%`,
-                          background: alert.status === 'RISK' ? 'var(--red)' : alert.status === 'NEAR' ? 'var(--amber)' : 'var(--blue)',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          ) : (
+            <AlertsPanel
+              alerts={alertsHook.alerts}
+              onDelete={(id) => alertsHook.deleteAlert(id)}
+            />
+          )}
 
-          {/* Allocation donut mini */}
-          <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card">
-            <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-4">Sector Allocation</p>
-            <div className="flex flex-col gap-2.5">
-              {[
-                { label: 'Banking',    pct: 38, color: 'var(--green)' },
-                { label: 'Technology', pct: 28, color: 'var(--blue)' },
-                { label: 'Energy',     pct: 22, color: 'var(--amber)' },
-                { label: 'Gold',       pct: 12, color: 'var(--text2)' },
-              ].map(({ label, pct, color }) => (
-                <div key={label} className="flex items-center gap-3">
-                  <span className="font-dm text-sm text-[var(--text2)] w-24">{label}</span>
-                  <div className="flex-1 h-1.5 bg-[var(--bg4)] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
-                  </div>
-                  <span className="font-mono text-xs text-[var(--text2)] w-8 text-right">{pct}%</span>
+          {/* Chart for selected ticker */}
+          {chartTicker && (
+            <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleResearch(chartTicker)}
+                    className="font-mono text-xs text-[var(--green)] hover:underline"
+                  >
+                    Open in Research →
+                  </button>
                 </div>
-              ))}
+                <button onClick={() => setChartTicker(null)} className="text-[var(--text3)] hover:text-[var(--text)]">
+                  <X size={15} />
+                </button>
+              </div>
+              <OHLCChart ticker={chartTicker} />
             </div>
-          </div>
+          )}
         </div>
       </div>
+
+      {/* Modals */}
+      {showAddHolding && (
+        <AddHoldingModal
+          onAdd={(ticker, qty, price) => portfolio.addHolding(ticker, qty, price)}
+          onClose={() => setShowAddHolding(false)}
+        />
+      )}
+      {showAddAlert && (
+        <CreateAlertModal
+          onCreate={(ticker, price, condition) => alertsHook.createAlert(ticker, price, condition)}
+          onClose={() => setShowAddAlert(false)}
+        />
+      )}
+
     </div>
   )
 }

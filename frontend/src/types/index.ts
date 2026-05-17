@@ -10,19 +10,24 @@ export interface Transaction {
 }
 
 export interface Holding {
+  id: string
   ticker: string
-  name: string
-  qty: number
-  avgCost: number
+  companyName: string
+  quantity: number
+  avgBuyPrice: number
   ltp: number
+  currentValue: number
   pnl: number
   pnlPercent: number
+  dayChange: number
+  changePercent: number
   sparkline: number[]
 }
 
 export interface WatchlistItem {
+  id: string
   ticker: string
-  name: string
+  companyName: string
   price: number
   change: number
   changePercent: number
@@ -32,10 +37,43 @@ export interface WatchlistItem {
 export interface PriceAlert {
   id: string
   ticker: string
-  condition: string
+  condition: 'ABOVE' | 'BELOW'
   targetPrice: number
   currentPrice: number
-  status: 'NEAR' | 'WATCH' | 'RISK'
+  distancePercent: number | null
+  isTriggered: boolean
+  triggeredAt: string | null
+  createdAt: string
+}
+
+export interface PortfolioSummary {
+  holdings: Holding[]
+  totalValue: number
+  totalPnl: number
+  totalPnlPercent: number
+  dayPnl: number
+}
+
+export interface MarketQuote {
+  ticker: string
+  companyName: string
+  price: number
+  change: number
+  changePercent: number
+  open: number
+  high: number
+  low: number
+  volume: number
+  marketCap: number | null
+}
+
+export interface OHLCPoint {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
 }
 
 export type AgentState = 'pending' | 'running' | 'done' | 'error'

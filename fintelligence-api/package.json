@@ -23,6 +23,7 @@
     "morgan": "^1.10.0",
     "node-cron": "^4.2.1",
     "stripe": "^14.18.0",
+    "yahoo-finance2": "^3.14.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

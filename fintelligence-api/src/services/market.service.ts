@@ -1,71 +1,6 @@
 import axios from 'axios'
 
-// ─── Dhan API client ──────────────────────────────────────────────────────────
-
-const dhan = axios.create({
-  baseURL: 'https://api.dhan.co/v2',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-    'access-token': process.env.DHAN_ACCESS_TOKEN ?? '',
-    'client-id':    process.env.DHAN_CLIENT_ID ?? '',
-  },
-})
-
-// ─── Rate-limit queue ─────────────────────────────────────────────────────────
-
-let lastRequestAt    = 0
-let rateLimitedUntil = 0
-
-const requestQueue: Array<() => void> = []
-let queueRunning = false
-
-function processQueue() {
-  if (requestQueue.length === 0) { queueRunning = false; return }
-  const next = requestQueue.shift()!
-  const wait = Math.max(0, lastRequestAt + 250 - Date.now())
-  setTimeout(() => { lastRequestAt = Date.now(); next(); processQueue() }, wait)
-}
-
-function enqueue<T>(fn: () => Promise<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    requestQueue.push(() => fn().then(resolve, reject))
-    if (!queueRunning) { queueRunning = true; processQueue() }
-  })
-}
-
-// ─── TTL cache with stale-read support ───────────────────────────────────────
-
-class TTLCache<T> {
-  private store = new Map<string, { value: T; expiresAt: number }>()
-  constructor(private ttlMs: number) {}
-
-  get(key: string): T | undefined {
-    const entry = this.store.get(key)
-    if (!entry || Date.now() > entry.expiresAt) return undefined
-    return entry.value
-  }
-
-  getStale(key: string): T | undefined {
-    return this.store.get(key)?.value
-  }
-
-  set(key: string, value: T) {
-    this.store.set(key, { value, expiresAt: Date.now() + this.ttlMs })
-  }
-}
-
-// ─── In-flight deduplication ──────────────────────────────────────────────────
-
-const inFlight = new Map<string, Promise<unknown>>()
-
-function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const existing = inFlight.get(key)
-  if (existing) return existing as Promise<T>
-  const p = fn().finally(() => inFlight.delete(key))
-  inFlight.set(key, p)
-  return p
-}
+const UPSTOX_BASE = process.env.UPSTOX_BASE_URL ?? 'https://api.upstox.com/v2'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,380 +26,243 @@ export interface OHLCPoint {
   volume: number
 }
 
-// ─── Instrument lookup ────────────────────────────────────────────────────────
+// ─── Instrument key map ───────────────────────────────────────────────────────
+// Equities use "NSE_EQ|ISIN"; indices use "NSE_INDEX|name" or "BSE_INDEX|name".
 
-interface Instrument {
-  securityId: number
-  segment: 'NSE_EQ' | 'BSE_EQ' | 'IDX_I'
-  name: string
+const INSTRUMENT_KEY: Record<string, string> = {
+  'NIFTY 50':   'NSE_INDEX|Nifty 50',
+  'NIFTYBANK':  'NSE_INDEX|Nifty Bank',
+  'SENSEX':     'BSE_INDEX|SENSEX',
+  'TCS':        'NSE_EQ|INE467B01029',
+  'RELIANCE':   'NSE_EQ|INE002A01018',
+  'NTPC':       'NSE_EQ|INE733E01010',
+  'INFY':       'NSE_EQ|INE009A01021',
+  'HDFCBANK':   'NSE_EQ|INE040A01034',
+  'ICICIBANK':  'NSE_EQ|INE090A01021',
+  'SBIN':       'NSE_EQ|INE062A01020',
+  'WIPRO':      'NSE_EQ|INE075A01022',
+  'AXISBANK':   'NSE_EQ|INE238A01034',
+  'BAJFINANCE': 'NSE_EQ|INE296A01024',
+  'TATAMOTORS': 'NSE_EQ|INE155A01022',
+  'LT':         'NSE_EQ|INE018A01030',
+  'KOTAKBANK':  'NSE_EQ|INE237A01028',
+  'MARUTI':     'NSE_EQ|INE585B01010',
+  'TATASTEEL':  'NSE_EQ|INE081A01012',
+  'HINDUNILVR': 'NSE_EQ|INE030A01027',
 }
 
-// Well-known instruments pre-seeded so the app works without waiting for the scrip master
-const INSTRUMENTS: Record<string, Instrument> = {
-  'NIFTY 50':  { securityId: 13,    segment: 'IDX_I', name: 'NIFTY 50' },
-  'SENSEX':    { securityId: 51,    segment: 'IDX_I', name: 'S&P BSE SENSEX' },
-  'NIFTYBANK': { securityId: 25,    segment: 'IDX_I', name: 'NIFTY BANK' },
-  'RELIANCE':  { securityId: 2885,  segment: 'NSE_EQ', name: 'Reliance Industries' },
-  'TCS':       { securityId: 11536, segment: 'NSE_EQ', name: 'Tata Consultancy Services' },
-  'INFY':      { securityId: 1594,  segment: 'NSE_EQ', name: 'Infosys' },
-  'HDFCBANK':  { securityId: 1333,  segment: 'NSE_EQ', name: 'HDFC Bank' },
-  'ICICIBANK': { securityId: 4963,  segment: 'NSE_EQ', name: 'ICICI Bank' },
-  'BAJFINANCE':{ securityId: 317,   segment: 'NSE_EQ', name: 'Bajaj Finance' },
-  'SBIN':      { securityId: 3045,  segment: 'NSE_EQ', name: 'State Bank of India' },
-  'WIPRO':     { securityId: 3787,  segment: 'NSE_EQ', name: 'Wipro' },
-  'AXISBANK':  { securityId: 5900,  segment: 'NSE_EQ', name: 'Axis Bank' },
-  'LT':        { securityId: 11483, segment: 'NSE_EQ', name: 'Larsen & Toubro' },
-  'KOTAKBANK': { securityId: 1922,  segment: 'NSE_EQ', name: 'Kotak Mahindra Bank' },
-  'HINDUNILVR':{ securityId: 1394,  segment: 'NSE_EQ', name: 'Hindustan Unilever' },
-  'TATAMOTORS':{ securityId: 3456,  segment: 'NSE_EQ', name: 'Tata Motors' },
-  'TATASTEEL': { securityId: 3499,  segment: 'NSE_EQ', name: 'Tata Steel' },
-  'MARUTI':    { securityId: 10999, segment: 'NSE_EQ', name: 'Maruti Suzuki' },
-  'SUNPHARMA': { securityId: 3351,  segment: 'NSE_EQ', name: 'Sun Pharmaceutical' },
-  'ULTRACEMCO':{ securityId: 11532, segment: 'NSE_EQ', name: 'UltraTech Cement' },
-  'ASIANPAINT':{ securityId: 236,   segment: 'NSE_EQ', name: 'Asian Paints' },
-  'TITAN':     { securityId: 3506,  segment: 'NSE_EQ', name: 'Titan Company' },
-  'ITC':       { securityId: 1660,  segment: 'NSE_EQ', name: 'ITC' },
-  'NTPC':      { securityId: 11630, segment: 'NSE_EQ', name: 'NTPC' },
-  'POWERGRID': { securityId: 14977, segment: 'NSE_EQ', name: 'Power Grid Corporation' },
-  'ONGC':      { securityId: 11723, segment: 'NSE_EQ', name: 'Oil & Natural Gas Corp' },
-  'COALINDIA': { securityId: 1333,  segment: 'NSE_EQ', name: 'Coal India' },
-  'ADANIENT':  { securityId: 25,    segment: 'NSE_EQ', name: 'Adani Enterprises' },
-  'ADANIPORTS':{ securityId: 15083, segment: 'NSE_EQ', name: 'Adani Ports & SEZ' },
-  'BAJAJFINSV':{ securityId: 16675, segment: 'NSE_EQ', name: 'Bajaj Finserv' },
-  'BHARTIARTL':{ securityId: 10604, segment: 'NSE_EQ', name: 'Bharti Airtel' },
-  'HCLTECH':   { securityId: 7229,  segment: 'NSE_EQ', name: 'HCL Technologies' },
-  'TECHM':     { securityId: 13538, segment: 'NSE_EQ', name: 'Tech Mahindra' },
-  'NESTLEIND': { securityId: 17963, segment: 'NSE_EQ', name: 'Nestle India' },
-  'DIVISLAB':  { securityId: 10940, segment: 'NSE_EQ', name: "Divi's Laboratories" },
-  'DRREDDY':   { securityId: 881,   segment: 'NSE_EQ', name: "Dr. Reddy's Laboratories" },
-  'CIPLA':     { securityId: 694,   segment: 'NSE_EQ', name: 'Cipla' },
-  'APOLLOHOSP':{ securityId: 157,   segment: 'NSE_EQ', name: 'Apollo Hospitals' },
-  'EICHERMOT': { securityId: 910,   segment: 'NSE_EQ', name: 'Eicher Motors' },
-  'M&M':       { securityId: 2031,  segment: 'NSE_EQ', name: 'Mahindra & Mahindra' },
-  'TATACONSUM':{ securityId: 3432,  segment: 'NSE_EQ', name: 'Tata Consumer Products' },
-  'BRITANNIA': { securityId: 547,   segment: 'NSE_EQ', name: 'Britannia Industries' },
-  'GRASIM':    { securityId: 1232,  segment: 'NSE_EQ', name: 'Grasim Industries' },
-  'JSWSTEEL':  { securityId: 11723, segment: 'NSE_EQ', name: 'JSW Steel' },
-  'HINDALCO':  { securityId: 1375,  segment: 'NSE_EQ', name: 'Hindalco Industries' },
-  'BPCL':      { securityId: 526,   segment: 'NSE_EQ', name: 'Bharat Petroleum Corp' },
-  'IOC':       { securityId: 1624,  segment: 'NSE_EQ', name: 'Indian Oil Corporation' },
-  'HEROMOTOCO':{ securityId: 1348,  segment: 'NSE_EQ', name: 'Hero MotoCorp' },
-  'INDUSINDBK':{ securityId: 5258,  segment: 'NSE_EQ', name: 'IndusInd Bank' },
-}
-
-// ─── Dynamic scrip master ─────────────────────────────────────────────────────
-// Downloads Dhan's full instrument list so any NSE/BSE equity can be resolved
-// without needing to be in the static map above.
-
-let dynamicMap: Map<string, Instrument> | null = null
-let scripLoadPromise: Promise<void> | null = null
-
-function loadScripMaster(): Promise<void> {
-  if (dynamicMap !== null) return Promise.resolve()
-  if (scripLoadPromise) return scripLoadPromise
-
-  scripLoadPromise = (async () => {
-    try {
-      console.log('[market] Downloading Dhan scrip master...')
-      const res = await axios.get('https://images.dhan.co/api-data/api-scrip-master.csv', {
-        timeout: 30_000,
-        responseType: 'text',
-      })
-
-      const map = new Map<string, Instrument>()
-      const lines = (res.data as string).split('\n')
-      if (lines.length < 2) throw new Error('Empty scrip master')
-
-      const header = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''))
-      const col = (name: string) => header.indexOf(name)
-
-      const iExch   = col('SEM_EXM_EXCH_ID')
-      const iInstr  = col('SEM_INSTRUMENT_NAME')
-      const iSymbol = col('SEM_TRADING_SYMBOL')
-      const iSecId  = col('SEM_SMST_SECURITY_ID')
-      const iName   = col('SM_SYMBOL_NAME')
-
-      if ([iExch, iInstr, iSymbol, iSecId].some((i) => i === -1)) {
-        throw new Error(`Unexpected scrip master columns: ${header.join(', ')}`)
-      }
-
-      for (let i = 1; i < lines.length; i++) {
-        const raw  = lines[i]
-        if (!raw.trim()) continue
-        const cols = raw.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
-
-        const exch   = cols[iExch]
-        const instr  = cols[iInstr]
-        const symbol = cols[iSymbol]?.toUpperCase()
-        const secId  = parseInt(cols[iSecId])
-        const name   = (iName !== -1 ? cols[iName] : '') || symbol
-
-        if (!symbol || !secId || isNaN(secId)) continue
-        if (instr !== 'EQUITY') continue
-        if (exch !== 'NSE' && exch !== 'BSE') continue
-
-        const segment = exch === 'NSE' ? 'NSE_EQ' : 'BSE_EQ'
-
-        // Prefer NSE over BSE when symbol appears on both
-        if (!map.has(symbol) || exch === 'NSE') {
-          map.set(symbol, { securityId: secId, segment, name })
-        }
-      }
-
-      dynamicMap = map
-      console.log(`[market] Scrip master ready — ${map.size} equity instruments`)
-    } catch (err: any) {
-      console.error('[market] Scrip master load failed:', err.message)
-      dynamicMap = new Map() // Prevent retrying on every request
-    }
-  })()
-
-  return scripLoadPromise
-}
-
-// Start loading at startup so it's ready before the first request
-loadScripMaster()
-
-async function resolveInstrument(ticker: string): Promise<Instrument | null> {
-  const clean = ticker.toUpperCase().trim()
-
-  // Indices live only in the static map — scrip master doesn't have them as equities
-  if (INSTRUMENTS[clean]?.segment === 'IDX_I') return INSTRUMENTS[clean]
-
-  // Scrip master is authoritative for NSE/BSE equities — prefer it over hardcoded IDs
-  await loadScripMaster()
-  if (dynamicMap?.has(clean)) return dynamicMap.get(clean)!
-
-  // Fall back to static map (covers the window before scrip master finishes loading)
-  return INSTRUMENTS[clean] ?? null
-}
-
-function daysAgo(n: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
-  return d.toISOString().slice(0, 10)
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-// ─── OHLC feed ────────────────────────────────────────────────────────────────
-
-interface DhanOHLCEntry {
-  last_price: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
-  previous_close: number
-}
-
-// Per-security cache so any batch that fetches TCS satisfies later single-ticker requests
-const securityCache = new TTLCache<DhanOHLCEntry>(2 * 60_000)
-
-async function fetchOHLCFeed(instruments: Instrument[]): Promise<Map<number, DhanOHLCEntry>> {
-  const result  = new Map<number, DhanOHLCEntry>()
-  const missing: Instrument[] = []
-
-  for (const inst of instruments) {
-    const key    = `${inst.segment}:${inst.securityId}`
-    const cached = securityCache.get(key)
-    if (cached) {
-      result.set(inst.securityId, cached)
+// Upstox response keys replace "|" with ":".
+// For equities: "NSE_EQ:SYMBOL" — symbol matches the ticker.
+// For indices:  "NSE_INDEX:Nifty 50", "BSE_INDEX:SENSEX" — mirrors the key name.
+const RESP_KEY_TO_TICKER: Record<string, string> = (() => {
+  const m: Record<string, string> = {}
+  for (const [ticker, ikey] of Object.entries(INSTRUMENT_KEY)) {
+    const [exchange] = ikey.split('|')
+    if (exchange.endsWith('_EQ')) {
+      m[`${exchange}:${ticker}`] = ticker
     } else {
-      missing.push(inst)
+      m[ikey.replace('|', ':')] = ticker
     }
+  }
+  return m
+})()
+
+// ─── HTTP client ──────────────────────────────────────────────────────────────
+
+function upstoxHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${process.env.UPSTOX_ACCESS_TOKEN ?? ''}`,
+    Accept: 'application/json',
+  }
+}
+
+async function upstoxGet<T>(path: string, params?: Record<string, string>): Promise<T> {
+  const url = `${UPSTOX_BASE}${path}`
+  console.log('[upstox] GET', url, params ?? '')
+  const { data } = await axios.get<{ status: string; data: T }>(
+    url,
+    { headers: upstoxHeaders(), params, timeout: 10_000 }
+  )
+  if (data.status !== 'success') throw new Error(`Upstox error: ${JSON.stringify(data)}`)
+  return data.data
+}
+
+// ─── TTL cache with stale fallback ───────────────────────────────────────────
+
+class TTLCache<T> {
+  private store = new Map<string, { value: T; expiresAt: number }>()
+  constructor(private ttlMs: number) {}
+
+  get(key: string): T | undefined {
+    const e = this.store.get(key)
+    if (!e || Date.now() > e.expiresAt) return undefined
+    return e.value
+  }
+
+  getStale(key: string): T | undefined {
+    return this.store.get(key)?.value
+  }
+
+  set(key: string, value: T) {
+    this.store.set(key, { value, expiresAt: Date.now() + this.ttlMs })
+  }
+}
+
+const quoteCache      = new TTLCache<QuoteResult>(2 * 60_000)
+const historicalCache = new TTLCache<OHLCPoint[]>(15 * 60_000)
+
+// ─── In-flight dedup ──────────────────────────────────────────────────────────
+
+const inFlight = new Map<string, Promise<unknown>>()
+
+function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inFlight.get(key)
+  if (existing) return existing as Promise<T>
+  const p = fn().finally(() => inFlight.delete(key))
+  inFlight.set(key, p)
+  return p
+}
+
+// ─── Quote parsing ────────────────────────────────────────────────────────────
+
+type RawEntry = {
+  last_price?: number
+  net_change?: number
+  ohlc?: { open?: number; high?: number; low?: number; close?: number }
+  volume?: number
+  symbol?: string
+}
+
+function parseQuoteEntry(ticker: string, entry: RawEntry): QuoteResult {
+  const price     = entry.last_price ?? 0
+  const change    = entry.net_change ?? 0
+  const prevClose = price - change
+  const changePct = prevClose !== 0 ? (change / prevClose) * 100 : 0
+  const ohlc      = entry.ohlc ?? {}
+
+  return {
+    ticker,
+    companyName:   entry.symbol ?? ticker,
+    price,
+    change,
+    changePercent: changePct,
+    open:      ohlc.open   ?? 0,
+    high:      ohlc.high   ?? 0,
+    low:       ohlc.low    ?? 0,
+    volume:    entry.volume ?? 0,
+    marketCap: null,
+  }
+}
+
+// ─── Quote fetch ──────────────────────────────────────────────────────────────
+
+async function fetchQuotes(tickers: string[]): Promise<Map<string, QuoteResult>> {
+  const result  = new Map<string, QuoteResult>()
+  const missing: string[] = []
+
+  for (const ticker of tickers) {
+    const cached = quoteCache.get(ticker)
+    if (cached) result.set(ticker, cached)
+    else missing.push(ticker)
   }
 
   if (!missing.length) return result
 
-  if (Date.now() < rateLimitedUntil) {
-    const secs = Math.ceil((rateLimitedUntil - Date.now()) / 1000)
-    console.warn(`[market] rate-limit backoff ${secs}s — serving stale data`)
-    for (const inst of missing) {
-      const stale = securityCache.getStale(`${inst.segment}:${inst.securityId}`)
-      if (stale) result.set(inst.securityId, stale)
-    }
-    return result
-  }
+  const ikeys = missing
+    .map(t => INSTRUMENT_KEY[t.toUpperCase()])
+    .filter((k): k is string => Boolean(k))
 
-  const bySegment: Record<string, number[]> = {}
-  for (const inst of missing) {
-    if (!bySegment[inst.segment]) bySegment[inst.segment] = []
-    bySegment[inst.segment].push(inst.securityId)
-  }
+  if (!ikeys.length) return result
 
-  const dedupeKey = JSON.stringify(bySegment)
-  const fresh = await dedupe(dedupeKey, () => enqueue(async () => {
-    const fetched = new Map<number, DhanOHLCEntry>()
+  const dedupeKey = ikeys.join(',')
+
+  const fresh = await dedupe(dedupeKey, async () => {
+    const fetched = new Map<string, QuoteResult>()
     try {
-      const { data } = await dhan.post('/marketfeed/ohlc', bySegment)
-      if (data?.status === 'success') {
-        for (const [, entries] of Object.entries(data.data as Record<string, Record<string, DhanOHLCEntry>>)) {
-          for (const [id, entry] of Object.entries(entries)) {
-            fetched.set(parseInt(id), entry)
-          }
-        }
-        for (const inst of missing) {
-          const entry = fetched.get(inst.securityId)
-          if (entry) securityCache.set(`${inst.segment}:${inst.securityId}`, entry)
-        }
+      const raw = await upstoxGet<Record<string, RawEntry>>(
+        '/market-quote/quotes',
+        { instrument_key: ikeys.join(',') }
+      )
+      for (const [respKey, entry] of Object.entries(raw)) {
+        const ticker = RESP_KEY_TO_TICKER[respKey]
+        if (!ticker) continue
+        const q = parseQuoteEntry(ticker, entry)
+        quoteCache.set(ticker, q)
+        fetched.set(ticker, q)
       }
-    } catch (err: any) {
-      const status = err?.response?.status
-      if (status === 429) {
-        rateLimitedUntil = Date.now() + 60_000
-        console.warn('[market] 429 from Dhan — backing off 60 s, serving stale')
-      } else if (status === 401) {
-        rateLimitedUntil = Date.now() + 5 * 60_000
-        console.error('[market] 401 from Dhan — access token invalid. Regenerate DHAN_ACCESS_TOKEN in .env')
-      } else {
-        throw err
-      }
-      for (const inst of missing) {
-        const stale = securityCache.getStale(`${inst.segment}:${inst.securityId}`)
-        if (stale) fetched.set(inst.securityId, stale)
+    } catch (err: unknown) {
+      console.error('[market] Upstox quote error:', err instanceof Error ? err.message : err)
+      for (const ticker of missing) {
+        const stale = quoteCache.getStale(ticker)
+        if (stale) fetched.set(ticker, stale)
       }
     }
     return fetched
-  }))
+  })
 
-  for (const [id, entry] of fresh) result.set(id, entry)
+  for (const [k, v] of fresh) result.set(k, v)
   return result
-}
-
-// ─── Price helpers ────────────────────────────────────────────────────────────
-// last_price is 0 pre-market / on some non-trading days; fall back to close.
-
-function effectivePrice(entry: DhanOHLCEntry): number {
-  return entry.last_price || entry.close || entry.previous_close
-}
-
-function buildQuote(ticker: string, inst: Instrument, entry: DhanOHLCEntry): QuoteResult {
-  const price     = effectivePrice(entry)
-  const prevClose = entry.previous_close || entry.close
-  const change    = prevClose > 0 ? price - prevClose : 0
-  const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0
-  return {
-    ticker,
-    companyName: inst.name,
-    price,
-    change,
-    changePercent: changePct,
-    open:      entry.open,
-    high:      entry.high,
-    low:       entry.low,
-    volume:    entry.volume,
-    marketCap: null,
-  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function getQuote(ticker: string): Promise<QuoteResult> {
-  const inst = await resolveInstrument(ticker)
-  if (!inst) throw new Error(`Unknown ticker: ${ticker}`)
-
-  const feed  = await fetchOHLCFeed([inst])
-  const entry = feed.get(inst.securityId)
-  if (!entry) throw new Error(`No data returned for ${ticker}`)
-
-  return buildQuote(ticker, inst, entry)
+  const map = await fetchQuotes([ticker])
+  const q   = map.get(ticker)
+  if (!q) throw new Error(`No data for ${ticker}`)
+  return q
 }
 
 export async function getQuotes(tickers: string[]): Promise<Map<string, QuoteResult>> {
-  const results = new Map<string, QuoteResult>()
-  if (!tickers.length) return results
-
-  const pairs: { ticker: string; inst: Instrument }[] = []
-  for (const ticker of tickers) {
-    const inst = await resolveInstrument(ticker)
-    if (inst) pairs.push({ ticker, inst })
-    else console.warn(`[market] No instrument mapping for ticker: ${ticker}`)
-  }
-  if (!pairs.length) return results
-
-  const feed = await fetchOHLCFeed(pairs.map((p) => p.inst))
-
-  for (const { ticker, inst } of pairs) {
-    const entry = feed.get(inst.securityId)
-    if (!entry) continue
-    results.set(ticker, buildQuote(ticker, inst, entry))
-  }
-
-  return results
+  return fetchQuotes(tickers)
 }
 
-// ─── Historical / OHLC chart ──────────────────────────────────────────────────
+// ─── Historical OHLC ─────────────────────────────────────────────────────────
+// Historical candle format: [timestamp, open, high, low, close, volume, oi]
 
-const RANGE_MAP: Record<string, { from: string }> = {
-  '1w': { from: daysAgo(7)   },
-  '1m': { from: daysAgo(30)  },
-  '3m': { from: daysAgo(90)  },
-  '6m': { from: daysAgo(180) },
-  '1y': { from: daysAgo(365) },
+const RANGE_DAYS: Record<string, number> = {
+  '1w': 7, '1m': 30, '3m': 90, '6m': 180, '1y': 365,
 }
-
-const historicalCache = new TTLCache<OHLCPoint[]>(15 * 60_000)
 
 export async function getOHLC(ticker: string, range: string): Promise<OHLCPoint[]> {
-  const inst = await resolveInstrument(ticker)
-  if (!inst) return []
-
-  const { from } = RANGE_MAP[range] ?? RANGE_MAP['1m']
-  const cacheKey = `${ticker}:${range}:${from}`
+  const cacheKey = `${ticker}:${range}`
   const cached   = historicalCache.get(cacheKey)
   if (cached) return cached
 
-  if (Date.now() < rateLimitedUntil) {
-    return historicalCache.getStale(cacheKey) ?? []
-  }
-
-  return dedupe(cacheKey, () => enqueue(async () => {
+  return dedupe(cacheKey, async () => {
     try {
-      const instrumentType = inst.segment === 'IDX_I' ? 'INDEX' : 'EQUITY'
-      const { data } = await dhan.post('/charts/historical', {
-        securityId:      String(inst.securityId),
-        exchangeSegment: inst.segment,
-        instrument:      instrumentType,
-        fromDate:        from,
-        toDate:          today(),
-      })
+      const ikey = INSTRUMENT_KEY[ticker.toUpperCase()]
+      if (!ikey) throw new Error(`Unknown ticker: ${ticker}`)
 
-      if (!data?.open) return historicalCache.getStale(cacheKey) ?? []
+      const days     = RANGE_DAYS[range] ?? 30
+      const today    = new Date()
+      const fromDate = new Date()
+      fromDate.setDate(fromDate.getDate() - days)
 
-      const { open, high, low, close, volume, timestamp } = data as {
-        open: number[]; high: number[]; low: number[]; close: number[]
-        volume: number[]; timestamp: number[]
-      }
+      const toStr   = today.toISOString().slice(0, 10)
+      const fromStr = fromDate.toISOString().slice(0, 10)
 
-      const points = timestamp.map((ts, i) => ({
-        date:   new Date(ts * 1000).toISOString().slice(0, 10),
-        open:   open[i]   ?? 0,
-        high:   high[i]   ?? 0,
-        low:    low[i]    ?? 0,
-        close:  close[i]  ?? 0,
-        volume: volume[i] ?? 0,
+      const encoded = encodeURIComponent(ikey)
+      const raw = await upstoxGet<{ candles: unknown[][] }>(
+        `/historical-candle/${encoded}/day/${toStr}/${fromStr}`
+      )
+
+      const points: OHLCPoint[] = raw.candles.map((c) => ({
+        date:   (c[0] as string).slice(0, 10),
+        open:   c[1] as number,
+        high:   c[2] as number,
+        low:    c[3] as number,
+        close:  c[4] as number,
+        volume: c[5] as number,
       }))
 
       historicalCache.set(cacheKey, points)
       return points
-    } catch (err: any) {
-      const status = err?.response?.status
-      if (status === 429) {
-        rateLimitedUntil = Date.now() + 60_000
-        console.warn('[market] 429 from Dhan historical — backing off 60 s')
-      } else if (status === 401) {
-        rateLimitedUntil = Date.now() + 5 * 60_000
-        console.error('[market] 401 from Dhan — access token invalid')
-      } else {
-        throw err
-      }
+    } catch (err: unknown) {
+      console.error(`[market] Upstox historical error for ${ticker}:`, err instanceof Error ? err.message : err)
       return historicalCache.getStale(cacheKey) ?? []
     }
-  }))
+  })
 }
 
 export async function getSparkline(ticker: string): Promise<number[]> {
@@ -476,7 +274,7 @@ export async function getSparkline(ticker: string): Promise<number[]> {
   }
 }
 
-// ─── Market strip tickers ─────────────────────────────────────────────────────
+// ─── Market strip ─────────────────────────────────────────────────────────────
 
 export const MARKET_STRIP_TICKERS = ['NIFTY 50', 'SENSEX', 'RELIANCE', 'TCS', 'INFY', 'HDFCBANK']
 
