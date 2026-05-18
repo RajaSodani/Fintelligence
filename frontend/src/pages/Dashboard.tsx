@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { TransactionModal } from '@/components/shared/TransactionModal'
+import { TransactionRow, CATEGORY_COLORS } from '@/components/shared/TransactionRow'
 import { SpendingDonut } from '@/components/charts/SpendingDonut'
 import { useTransactions } from '@/hooks/useTransactions'
 import { useTransactionSummary } from '@/hooks/useTransactionSummary'
@@ -21,18 +23,6 @@ const EMPTY_TREND = [
   { month: 'May', value: 0 },
 ]
 
-const CATEGORY_COLORS: Record<string, string> = {
-  'Food & Dining':      'var(--green)',
-  'Shopping':           'var(--blue)',
-  'Transport':          'var(--amber)',
-  'Subscriptions':      'var(--red)',
-  'Income':             'var(--purple)',
-  'Utilities':          'var(--text2)',
-  'Housing & Finance':  'var(--gold)',
-  'Health':             '#0ea5e9',
-  'Other':              'var(--text3)',
-}
-
 
 function WorthTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
   if (!active || !payload?.length) return null
@@ -46,6 +36,7 @@ function WorthTooltip({ active, payload, label }: { active?: boolean; payload?: 
 
 export function Dashboard() {
   const [input, setInput] = useState('')
+  const [showAllTx, setShowAllTx] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
@@ -80,6 +71,8 @@ export function Dashboard() {
   const changePercent = comparison?.changePercent ?? 0
 
   return (
+    <>
+    {showAllTx && <TransactionModal onClose={() => setShowAllTx(false)} />}
     <div className="flex flex-col gap-5">
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
@@ -202,7 +195,7 @@ export function Dashboard() {
         <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
           <div className="px-5 py-4 flex items-center justify-between border-b border-[var(--border)]">
             <p className="font-syne font-bold text-[15px] text-[var(--text)]">Recent Transactions</p>
-            <button className="font-mono text-xs text-[var(--green)] hover:underline">View all</button>
+            <button className="font-mono text-xs text-[var(--green)] hover:underline" onClick={() => setShowAllTx(true)}>View all</button>
           </div>
 
           {txLoading ? (
@@ -214,35 +207,7 @@ export function Dashboard() {
             />
           ) : (
             <div className="divide-y divide-[var(--border)]">
-              {transactions.map((tx) => {
-                const isCredit = tx.amount < 0
-                const displayAmount = Math.abs(tx.amount)
-                return (
-                  <div key={tx.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--bg3)] transition-colors">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold"
-                      style={{
-                        background: isCredit ? 'rgba(0,232,122,0.1)' : 'var(--bg4)',
-                        color: isCredit ? 'var(--green)' : (CATEGORY_COLORS[tx.category ?? ''] ?? 'var(--text2)'),
-                      }}
-                    >
-                      {(tx.merchantName ?? tx.name).slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-dm text-[15px] font-medium text-[var(--text)] truncate">{tx.name}</p>
-                      <p className="font-mono text-xs text-[var(--text3)]">
-                        {tx.category ?? 'Other'} · {new Date(tx.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className={cn('font-mono text-[15px] font-medium', isCredit ? 'text-[var(--green)]' : 'text-[var(--text)]')}>
-                        {isCredit ? '+' : '−'}₹{displayAmount.toLocaleString('en-IN')}
-                      </p>
-                      {tx.pending && <Badge variant="muted" className="mt-0.5">pending</Badge>}
-                    </div>
-                  </div>
-                )
-              })}
+              {transactions.map((tx) => <TransactionRow key={tx.id} tx={tx} />)}
             </div>
           )}
         </div>
@@ -325,5 +290,6 @@ export function Dashboard() {
         </div>
       </div>
     </div>
+    </>
   )
 }
