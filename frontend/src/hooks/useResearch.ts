@@ -107,6 +107,7 @@ export function useResearch(): UseResearchResult {
       if (token) headers['Authorization'] = `Bearer ${token}`
 
       const baseURL = import.meta.env.VITE_AI_API ?? 'http://localhost:3002'
+      console.log('Sending research request for', ticker)
       const res = await fetch(`${baseURL}/api/research/stream`, {
         method: 'POST',
         headers,

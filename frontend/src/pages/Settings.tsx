@@ -1,4 +1,4 @@
-import { Building2, Crown, LogOut, Shield, Bell, Globe, ChevronRight, Check } from 'lucide-react'
+import { Building2, Crown, LogOut, Shield, Bell, Globe, ChevronRight, Check, AlertTriangle, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useClerk } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/Button'
@@ -47,8 +47,10 @@ export function Settings() {
   const { user } = useUser()
   const { signOut } = useClerk()
   const { accounts, loading: accountsLoading, refetch: refetchAccounts } = useAccounts()
-  const [notifications, setNotifications] = useState({ priceAlerts: true, aiInsights: true, weeklyReport: false })
+  const [notifications, setNotifications] = useState({ emailAlerts: true, weeklyReport: false })
   const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [connectBankToast, setConnectBankToast] = useState(false)
 
   const initials = user
     ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || '?'
@@ -138,6 +140,29 @@ export function Settings() {
             <p className="font-mono text-xs text-[var(--text3)] mb-3">Setu AA · RBI-regulated · All major Indian banks</p>
             <SetuConnect onSuccess={refetchAccounts} />
           </div>
+
+          {/* Coming-soon Setu connect button */}
+          <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg3)] border border-[var(--border)]">
+            <div>
+              <p className="font-dm text-[15px] font-medium text-[var(--text)]">Connect Bank</p>
+              <p className="font-mono text-xs text-[var(--text3)]">Link your savings, demat, or loan accounts</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setConnectBankToast(true)
+                setTimeout(() => setConnectBankToast(false), 3000)
+              }}
+            >
+              Connect
+            </Button>
+          </div>
+          {connectBankToast && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-[rgba(77,159,255,0.08)] border border-[rgba(77,159,255,0.2)]">
+              <span className="font-mono text-xs text-[var(--blue)]">Bank connection via Setu is coming soon!</span>
+            </div>
+          )}
         </div>
       </Section>
 
@@ -145,9 +170,8 @@ export function Settings() {
       <Section title="Notifications" icon={Bell}>
         <div className="flex flex-col divide-y divide-[var(--border)]">
           {[
-            { key: 'priceAlerts',  label: 'Price Alerts',    desc: 'Get notified when your alerts trigger' },
-            { key: 'aiInsights',   label: 'AI Insights',     desc: 'Daily AI-generated portfolio insights' },
-            { key: 'weeklyReport', label: 'Weekly Report',   desc: 'Portfolio performance summary every Sunday' },
+            { key: 'emailAlerts',  label: 'Email Price Alerts',   desc: 'Get an email when a price alert triggers' },
+            { key: 'weeklyReport', label: 'Weekly Portfolio Summary', desc: 'Portfolio performance summary every Sunday' },
           ].map(({ key, label, desc }) => (
             <div key={key} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
               <div>
@@ -225,6 +249,36 @@ export function Settings() {
           </div>
           <Button variant="danger" size="sm" icon={LogOut} onClick={() => signOut()}>Sign Out</Button>
         </div>
+      </Section>
+
+      {/* Danger Zone */}
+      <Section title="Danger Zone" icon={AlertTriangle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-dm text-[15px] font-medium text-[var(--text)]">Delete Account</p>
+            <p className="font-mono text-xs text-[var(--text3)]">Permanently delete your account and all associated data</p>
+          </div>
+          <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)}>Delete Account</Button>
+        </div>
+
+        {showDeleteConfirm && (
+          <div className="mt-4 p-4 rounded-xl bg-[rgba(255,77,106,0.06)] border border-[rgba(255,77,106,0.2)]">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={16} className="text-[var(--red)] flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-syne font-semibold text-[14px] text-[var(--text)] mb-1">Are you sure?</p>
+                <p className="font-mono text-xs text-[var(--text3)] mb-3">This action cannot be undone. All your holdings, watchlist, alerts, and transaction history will be permanently deleted.</p>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+                  <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(false)}>I understand, delete my account</Button>
+                </div>
+              </div>
+              <button onClick={() => setShowDeleteConfirm(false)} className="text-[var(--text3)] hover:text-[var(--text)]">
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+        )}
       </Section>
 
       <UpgradeModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />

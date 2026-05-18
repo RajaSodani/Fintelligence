@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, ArrowUpRight, Bot } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Send, ArrowUpRight, Bot, TrendingUp } from 'lucide-react'
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { StatCard } from '@/components/ui/StatCard'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { SpendingDonut } from '@/components/charts/SpendingDonut'
@@ -10,7 +12,8 @@ import { useTransactions } from '@/hooks/useTransactions'
 import { useTransactionSummary } from '@/hooks/useTransactionSummary'
 import { useNetWorth } from '@/hooks/useNetWorth'
 import { useChat } from '@/hooks/useChat'
-import { cn, formatCompact } from '@/lib/utils'
+import { usePortfolio } from '@/hooks/usePortfolio'
+import { cn, formatCompact, formatCurrency } from '@/lib/utils'
 
 const EMPTY_TREND = [
   { month: 'Nov', value: 0 }, { month: 'Dec', value: 0 }, { month: 'Jan', value: 0 },
@@ -44,10 +47,12 @@ function WorthTooltip({ active, payload, label }: { active?: boolean; payload?: 
 export function Dashboard() {
   const [input, setInput] = useState('')
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
 
   const { transactions, loading: txLoading } = useTransactions({ limit: 8 })
   const { byCategory, comparison, loading: summaryLoading } = useTransactionSummary()
   const { netWorth, trend, loading: nwLoading } = useNetWorth()
+  const { totalValue, totalPnl, totalPnlPercent, dayPnl, holdings, loading: pLoading } = usePortfolio()
 
   const donutData = byCategory
     .filter((c) => c.category !== 'Income')
@@ -87,18 +92,18 @@ export function Dashboard() {
           accent
         />
         <StatCard
+          label="Portfolio Value"
+          value={pLoading ? '...' : formatCompact(totalValue)}
+          change={holdings.length === 0 && !pLoading ? 'Add holdings' : `${totalPnlPercent >= 0 ? '+' : ''}${totalPnlPercent.toFixed(2)}% total return`}
+          changeType={totalPnlPercent >= 0 ? 'up' : 'down'}
+          sub={pLoading ? '' : holdings.length === 0 ? 'No holdings yet' : `Day: ${dayPnl >= 0 ? '+' : ''}${formatCurrency(Math.abs(dayPnl))}`}
+        />
+        <StatCard
           label="Monthly Spend"
           value={summaryLoading ? '...' : formatCompact(monthlySpend)}
           change={`${changePercent > 0 ? '+' : ''}${changePercent}% vs last month`}
           changeType={changePercent > 0 ? 'down' : 'up'}
           sub={`Budget: ${formatCompact(30_000)}`}
-        />
-        <StatCard
-          label="Transactions"
-          value={summaryLoading ? '...' : String(transactions.length)}
-          change="this month"
-          changeType="neutral"
-          sub="Across all accounts"
         />
         <StatCard
           label="Top Category"
@@ -108,6 +113,23 @@ export function Dashboard() {
           sub="Highest spend"
         />
       </div>
+
+      {/* Portfolio quick-link banner (shown only when no holdings) */}
+      {!pLoading && holdings.length === 0 && (
+        <div
+          className="rounded-2xl p-4 flex items-center gap-4"
+          style={{ background: 'linear-gradient(135deg, rgba(0,232,122,0.06), rgba(77,159,255,0.04))', border: '1px dashed rgba(0,232,122,0.2)' }}
+        >
+          <div className="w-9 h-9 rounded-xl bg-[rgba(0,232,122,0.1)] flex items-center justify-center flex-shrink-0">
+            <TrendingUp size={16} className="text-[var(--green)]" />
+          </div>
+          <div className="flex-1">
+            <p className="font-syne font-semibold text-[14px] text-[var(--text)]">Track your investments</p>
+            <p className="font-mono text-xs text-[var(--text3)]">Add holdings to see live P&L on the Market page</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/market')}>Go to Market</Button>
+        </div>
+      )}
 
       {/* Net worth chart + spending breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">

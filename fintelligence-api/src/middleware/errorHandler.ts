@@ -12,7 +12,7 @@ export function errorHandler(
   _next: NextFunction,
 ): void {
   const statusCode = err.statusCode ?? 500
-  const message = statusCode === 500 ? 'Internal server error' : err.message
+  const message = statusCode === 500 ? `Internal server error, ${err.message}` : err.message
 
   if (statusCode === 500) {
     console.error('[Error]', err)

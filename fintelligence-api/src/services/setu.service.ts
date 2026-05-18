@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { PrismaClient } from '@prisma/client'
-import { subYears, format } from 'date-fns'
+import { subYears, addMonths, format } from 'date-fns'
 import { SETU_BASE_URL, setuHeaders } from '../config/setu'
 import { categorizeTransaction } from './transactions.service'
 
@@ -15,13 +15,16 @@ export async function createConsent(
   redirectUrl: string,
 ): Promise<{ id: string; url: string; status: string }> {
   const from = format(subYears(new Date(), 2), "yyyy-MM-dd'T'HH:mm:ss'Z'")
-  const to = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+  // to = now + 12 months (matches consentDuration) so any future session's `to = now` always falls within this range
+  const to = format(addMonths(new Date(), 12), "yyyy-MM-dd'T'HH:mm:ss'Z'")
 
   const { data } = await http.post('/consents', {
     vua: `${mobileNumber}@onemoney`,
     consentDuration: { unit: 'MONTH', value: 12 },
     dataRange: { from, to },
     dataLife: { unit: 'MONTH', value: 0 },
+    consentTypes: ['PROFILE', 'SUMMARY', 'TRANSACTIONS'],
+    fiTypes: ['DEPOSIT', 'TERM_DEPOSIT', 'RECURRING_DEPOSIT', 'IDR'],
     redirectUrl,
   })
 
@@ -119,14 +122,22 @@ export async function handleSessionWebhook(payload: {
 export async function createDataSession(
   consentId: string,
 ): Promise<{ id: string; status: string }> {
-  const from = format(subYears(new Date(), 2), "yyyy-MM-dd'T'HH:mm:ss'Z'")
-  const to = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+  const consent = await getConsentStatus(consentId)
+  const consentStart = new Date(consent.detail?.consentStart ?? consent.Detail?.consentStart)
+  const from = format(subYears(consentStart, 2), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+  const to = format(consentStart, "yyyy-MM-dd'T'HH:mm:ss'Z'")
 
-  const { data } = await http.post('/sessions', {
-    consentId,
-    format: 'json',
-    DataRange: { from, to },
-  })
+  const sessionBody = { consentId, format: 'json', dataRange: { from, to } }
+  console.log('[Setu] createDataSession body:', JSON.stringify(sessionBody))
+
+  let data: any
+  try {
+    const res = await http.post('/sessions', sessionBody)
+    data = res.data
+  } catch (err: any) {
+    console.error('[Setu] createDataSession error:', JSON.stringify(err?.response?.data))
+    throw err
+  }
 
   return data
 }
@@ -139,15 +150,22 @@ export async function fetchAndStoreSessionData(sessionId: string, userId: string
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) return
 
-  for (const fip of session.fips ?? []) {
-    for (const acc of fip.accounts ?? []) {
-      if (!acc.data) continue
+  // Setu sandbox returns `fips`; some older shapes use `Payload`
+  const fipList = session.fips ?? session.Payload ?? []
 
-      const summary = acc.data?.Summary ?? acc.data?.Account?.Summary
-      const transactions = acc.data?.Transactions?.Transaction ?? acc.data?.Account?.Transactions?.Transaction ?? []
+  for (const fip of fipList) {
+    const accList = fip.accounts ?? fip.data ?? []
+    for (const acc of accList) {
+      const fi = acc.decryptedFI ?? acc.data
+      if (!fi) continue
+
+      // Setu sandbox uses lowercase keys: `account`, `summary`, `transactions`
+      const acct = fi.account ?? fi.Account ?? fi
+      const summary = acct.summary ?? acct.Summary
+      const txList = acct.transactions?.transaction ?? acct.Transactions?.Transaction ?? []
       const balance = parseFloat(summary?.currentBalance ?? '0')
       const currency = summary?.currency ?? 'INR'
-      const accType = acc.data?.type ?? fip.fipID
+      const accType = acct.type ?? acct['@type'] ?? fip.fipID
 
       // Upsert account
       const account = await prisma.account.upsert({
@@ -167,7 +185,7 @@ export async function fetchAndStoreSessionData(sessionId: string, userId: string
       })
 
       // Upsert transactions
-      for (const tx of transactions) {
+      for (const tx of txList) {
         const txDate = tx.transactionTimestamp ?? tx.valueDate
         const isCredit = tx.type === 'CREDIT'
         const amount = parseFloat(tx.amount ?? '0')
