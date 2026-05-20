@@ -84,7 +84,7 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
 
   const accounts = await prisma.account.findMany({ where: { userId: user.id } })
 
-  const ASSET_TYPES = ['depository', 'investment', 'brokerage']
+  const ASSET_TYPES = ['depository', 'investment', 'brokerage', 'deposit', 'term_deposit', 'recurring_deposit']
   const LIABILITY_TYPES = ['credit', 'loan']
 
   const assets = accounts.filter((a) => ASSET_TYPES.includes(a.type.toLowerCase()))
@@ -124,14 +124,16 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
     monthlyNet.push(income - expenses)
   }
 
-  // Walk backwards from current net worth
-  const trend: Array<{ month: string; value: number }> = []
+  // Walk backwards from current net worth to reconstruct historical balances.
+  // For each step back: previous_balance = current_balance - that_month's_net_income
+  const trendPoints: Array<{ month: string; value: number }> = []
   let running = netWorth
-  for (let i = 5; i >= 0; i--) {
+  for (let i = 0; i <= 5; i++) {
     const d = subMonths(now, i)
-    trend.push({ month: format(d, 'MMM'), value: Math.round(running) })
-    if (i > 0) running -= monthlyNet[5 - i + 1] ?? 0
+    trendPoints.unshift({ month: format(d, 'MMM'), value: Math.round(running) })
+    running -= monthlyNet[5 - i] ?? 0
   }
+  const trend = trendPoints
 
   res.json({
     netWorth,

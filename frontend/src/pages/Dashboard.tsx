@@ -42,13 +42,24 @@ export function Dashboard() {
 
   const { transactions, loading: txLoading } = useTransactions({ limit: 8 })
   const { byCategory, comparison, loading: summaryLoading } = useTransactionSummary()
-  const { netWorth, trend, loading: nwLoading } = useNetWorth()
+  const { netWorth, accounts: nwAccounts, trend, loading: nwLoading } = useNetWorth()
   const { totalValue, totalPnl, totalPnlPercent, dayPnl, holdings, loading: pLoading } = usePortfolio()
+
+  // True net worth = bank accounts + portfolio market value
+  const totalNetWorth = netWorth + (!pLoading ? totalValue : 0)
+
+  // Shift every trend point up by portfolio value (no historical portfolio data available)
+  const trendWithPortfolio = trend.map((p) => ({ ...p, value: p.value + (!pLoading ? totalValue : 0) }))
+
+  // Cash held in depository (savings/current) accounts
+  const cashInHand = nwAccounts
+    .filter((a) => ['depository', 'deposit', 'recurring_depost', 'term_deposit'].includes(a.type.toLowerCase()))
+    .reduce((s, a) => s + a.balance, 0)
 
   const donutData = byCategory
     .filter((c) => c.category !== 'Income')
     .sort((a, b) => b.total - a.total)
-    .slice(0, 6)
+    .slice(0, 3)
     .map((c) => ({ category: c.category, amount: c.total, color: CATEGORY_COLORS[c.category] ?? 'var(--text3)' }))
 
   const { messages, sendMessage, isTyping } = useChat({
@@ -78,10 +89,10 @@ export function Dashboard() {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
           label="Net Worth"
-          value={nwLoading ? '...' : formatCompact(netWorth)}
-          change={netWorth === 0 && !nwLoading ? 'Connect a bank' : 'across all accounts'}
-          changeType={netWorth >= 0 ? 'up' : 'down'}
-          sub={nwLoading ? '' : netWorth === 0 ? 'No accounts linked' : `₹${netWorth.toLocaleString('en-IN')}`}
+          value={(nwLoading || pLoading) ? '...' : formatCompact(totalNetWorth)}
+          change={totalNetWorth === 0 && !nwLoading ? 'Connect a bank' : 'bank + portfolio'}
+          changeType={totalNetWorth >= 0 ? 'up' : 'down'}
+          sub={(nwLoading || pLoading) ? '' : totalNetWorth === 0 ? 'No accounts linked' : `₹${totalNetWorth.toLocaleString('en-IN')}`}
           accent
         />
         <StatCard
@@ -99,11 +110,11 @@ export function Dashboard() {
           sub={`Budget: ${formatCompact(30_000)}`}
         />
         <StatCard
-          label="Top Category"
-          value={donutData[0]?.category ?? '—'}
-          change={donutData[0] ? formatCompact(donutData[0].amount) : ''}
+          label="Cash in Hand"
+          value={nwLoading ? '...' : formatCompact(cashInHand)}
+          change={cashInHand === 0 && !nwLoading ? 'Connect a bank' : 'in bank accounts'}
           changeType="neutral"
-          sub="Highest spend"
+          sub={nwLoading ? '' : cashInHand === 0 ? 'No accounts linked' : `₹${cashInHand.toLocaleString('en-IN')}`}
         />
       </div>
 
@@ -131,10 +142,10 @@ export function Dashboard() {
           <div className="flex items-start justify-between mb-5">
             <div>
               <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1">Net Worth Trend</p>
-              <p className="num text-[28px] text-[var(--text)]">{nwLoading ? '...' : formatCompact(netWorth)}</p>
+              <p className="num text-[28px] text-[var(--text)]">{(nwLoading || pLoading) ? '...' : formatCompact(totalNetWorth)}</p>
               {(() => {
-                const first = trend[0]?.value ?? 0
-                const last = trend[trend.length - 1]?.value ?? 0
+                const first = trendWithPortfolio[0]?.value ?? 0
+                const last = trendWithPortfolio[trendWithPortfolio.length - 1]?.value ?? 0
                 const delta = last - first
                 const pct = first !== 0 ? ((delta / Math.abs(first)) * 100).toFixed(1) : null
                 return delta !== 0 ? (
@@ -151,8 +162,8 @@ export function Dashboard() {
               })()}
             </div>
             {(() => {
-              const first = trend[0]?.value ?? 0
-              const last = trend[trend.length - 1]?.value ?? 0
+              const first = trendWithPortfolio[0]?.value ?? 0
+              const last = trendWithPortfolio[trendWithPortfolio.length - 1]?.value ?? 0
               const pct = first !== 0 ? ((last - first) / Math.abs(first) * 100).toFixed(1) : null
               return pct ? (
                 <Badge variant={parseFloat(pct) >= 0 ? 'green' : 'red'} dot>{parseFloat(pct) >= 0 ? '+' : ''}{pct}% 6mo</Badge>
@@ -161,7 +172,7 @@ export function Dashboard() {
           </div>
           <div style={{ height: 140 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend.length > 0 ? trend : EMPTY_TREND} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+              <AreaChart data={trendWithPortfolio.length > 0 ? trendWithPortfolio : EMPTY_TREND} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
                 <defs>
                   <linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#00e87a" stopOpacity={0.18} />
