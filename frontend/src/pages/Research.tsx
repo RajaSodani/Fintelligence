@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search, Newspaper, BarChart2, MessageSquare, Brain, ArrowRight, CheckCircle2, Loader2, AlertCircle } from 'lucide-react'
+import { Newspaper, BarChart2, MessageSquare, Brain, ArrowRight, CheckCircle2, Loader2, AlertCircle, Send, Bot, User, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { OHLCChart } from '@/components/charts/OHLCChart'
+import { TickerSearch } from '@/components/portfolio/TickerSearch'
 import { cn } from '@/lib/utils'
 import type { AgentState } from '@/types'
 import { useResearch } from '@/hooks/useResearch'
-import type { SentimentScore } from '@/hooks/useResearch'
+import { useChat } from '@/hooks/useChat'
+import type { SentimentScore, ResearchReport } from '@/hooks/useResearch'
 
 interface AgentMeta {
   id: string
@@ -35,7 +38,7 @@ const AGENT_META: AgentMeta[] = [
     icon: BarChart2,
     color: 'var(--green)',
     bg: 'rgba(0,232,122,0.1)',
-    description: 'Pulls live price, market cap, P/E, P/B, ROE and full fundamentals for NSE/BSE/US stocks',
+    description: 'Pulls live price, market cap, P/E, P/B, EPS, margins, growth, and full fundamentals',
     sources: 'Yahoo Finance · NSE · BSE · NASDAQ',
   },
   {
@@ -44,8 +47,8 @@ const AGENT_META: AgentMeta[] = [
     icon: MessageSquare,
     color: 'var(--amber)',
     bg: 'rgba(245,166,35,0.1)',
-    description: 'Synthesizes news tone, analyst signals, and market positioning into a sentiment score',
-    sources: 'Powered by GPT-4o · News Analysis',
+    description: 'Scores news tone, technical momentum, analyst consensus, and fundamental health',
+    sources: 'Powered by GPT-4o · Multi-signal analysis',
   },
   {
     id: 'thesis',
@@ -53,8 +56,8 @@ const AGENT_META: AgentMeta[] = [
     icon: Brain,
     color: 'var(--purple)',
     bg: 'rgba(155,109,255,0.1)',
-    description: 'Synthesizes all signals into a structured investment thesis with price target and risk factors',
-    sources: 'Powered by GPT-4o · Multi-signal synthesis',
+    description: 'Synthesizes all signals into a structured investment thesis with price target and specific entry/exit levels',
+    sources: 'Powered by GPT-4o · Senior analyst model',
   },
 ]
 
@@ -72,29 +75,165 @@ function ratingVariant(rating: string): 'green' | 'amber' | 'red' | 'blue' {
   return 'amber'
 }
 
+// ─── Research Chat ────────────────────────────────────────────────────────────
+
+function ResearchChat({ report }: { report: ResearchReport }) {
+  const [input, setInput] = useState('')
+  const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // Build rich stock context for the AI
+  const stockContext = [
+    {
+      ticker: report.ticker,
+      company: report.financials_data?.company_name,
+      sector: report.financials_data?.sector,
+      exchange: report.financials_data?.exchange,
+    },
+    ...(report.financials_data?.snapshot ?? []),
+    {
+      type: 'sentiment',
+      overall: report.sentiment_data?.overall,
+      summary: report.sentiment_data?.summary,
+      scores: report.sentiment_data?.scores,
+    },
+    {
+      type: 'thesis',
+      rating: report.thesis_data?.rating,
+      target_price: report.thesis_data?.target_price,
+      summary: report.thesis_data?.summary,
+      verdict: report.thesis_data?.verdict,
+      risks: report.thesis_data?.risks,
+    },
+    {
+      type: 'recent_news',
+      headlines: report.news_data?.headlines?.slice(0, 6).map((h) => h.title) ?? [],
+    },
+  ]
+
+  const { messages, sendMessage, isTyping } = useChat({
+    transactionsContext: stockContext,
+    contextType: 'stock_research',
+  })
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isTyping])
+
+  const handleSend = () => {
+    const t = input.trim()
+    if (!t) return
+    sendMessage(t)
+    setInput('')
+  }
+
+  return (
+    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl shadow-card flex flex-col overflow-hidden" style={{ maxHeight: 420 }}>
+      <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center gap-2 flex-shrink-0">
+        <Brain size={14} className="text-[var(--purple)]" />
+        <p className="font-syne font-bold text-[14px] text-[var(--text)]">Ask about {report.ticker}</p>
+        <span className="font-mono text-2xs text-[var(--text3)] ml-auto">Stock Research AI</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 min-h-0">
+        {messages.length === 0 && (
+          <div className="flex items-start gap-2.5">
+            <div className="w-6 h-6 rounded-full bg-[rgba(155,109,255,0.15)] flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Bot size={12} className="text-[var(--purple)]" />
+            </div>
+            <div className="bg-[var(--bg3)] rounded-xl rounded-tl-sm px-3.5 py-2.5 max-w-[85%]">
+              <p className="font-dm text-[13px] text-[var(--text2)] leading-relaxed">
+                Research on <span className="text-[var(--text)] font-medium">{report.ticker}</span> is ready. Ask me about the fundamentals, thesis, risks, or anything else from this report.
+              </p>
+            </div>
+          </div>
+        )}
+        {messages.map((msg) => (
+          <div key={msg.id} className={cn('flex items-start gap-2.5', msg.role === 'user' && 'flex-row-reverse')}>
+            <div className={cn(
+              'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5',
+              msg.role === 'user' ? 'bg-[rgba(0,232,122,0.15)]' : 'bg-[rgba(155,109,255,0.15)]',
+            )}>
+              {msg.role === 'user'
+                ? <User size={12} className="text-[var(--green)]" />
+                : <Bot size={12} className="text-[var(--purple)]" />}
+            </div>
+            <div className={cn(
+              'rounded-xl px-3.5 py-2.5 max-w-[85%]',
+              msg.role === 'user'
+                ? 'bg-[rgba(0,232,122,0.1)] border border-[rgba(0,232,122,0.15)] rounded-tr-sm'
+                : 'bg-[var(--bg3)] rounded-tl-sm',
+            )}>
+              <p className="font-dm text-[13px] text-[var(--text2)] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+              <p className="font-mono text-2xs text-[var(--text3)] mt-1 opacity-60">{msg.timestamp}</p>
+            </div>
+          </div>
+        ))}
+        {isTyping && (
+          <div className="flex items-start gap-2.5">
+            <div className="w-6 h-6 rounded-full bg-[rgba(155,109,255,0.15)] flex items-center justify-center flex-shrink-0">
+              <Bot size={12} className="text-[var(--purple)]" />
+            </div>
+            <div className="bg-[var(--bg3)] rounded-xl rounded-tl-sm px-3.5 py-2.5">
+              <div className="flex gap-1 items-center h-4">
+                {[0, 1, 2].map((i) => (
+                  <span key={i} className="w-1.5 h-1.5 bg-[var(--text3)] rounded-full animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      <div className="px-4 py-3 border-t border-[var(--border)] flex gap-2 flex-shrink-0">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+          placeholder={`Ask about ${report.ticker}…`}
+          className="flex-1 bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-3.5 py-2 font-dm text-[13px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(155,109,255,0.4)] outline-none transition-colors"
+        />
+        <button
+          onClick={handleSend}
+          disabled={!input.trim() || isTyping}
+          className="w-8 h-8 rounded-xl bg-[rgba(155,109,255,0.15)] hover:bg-[rgba(155,109,255,0.25)] flex items-center justify-center transition-colors disabled:opacity-40"
+        >
+          <Send size={14} className="text-[var(--purple)]" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Research page ────────────────────────────────────────────────────────────
+
 export function Research() {
   const [searchParams] = useSearchParams()
   const [ticker, setTicker] = useState(() => searchParams.get('ticker') ?? '')
+  const [selectedTicker, setSelectedTicker] = useState('')
   const { agentStates, agentData, report, isRunning, error, runResearch, reset } = useResearch()
 
   useEffect(() => {
     const t = searchParams.get('ticker')
-    if (t && t !== ticker) setTicker(t)
-  }, [searchParams])
+    if (t && t !== ticker) { setTicker(t); setSelectedTicker(t) }
+  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isDone = agentStates.thesis === 'done'
 
   const handleRun = (sym?: string) => {
-    const symbol = sym ?? ticker.trim()
+    const symbol = (sym ?? selectedTicker ?? ticker).trim().toUpperCase()
     if (!symbol || isRunning) return
-    if (sym) setTicker(sym)
+    if (sym) { setTicker(sym); setSelectedTicker(sym) }
     runResearch(symbol)
   }
 
   const handleClear = () => {
     setTicker('')
+    setSelectedTicker('')
     reset()
   }
+
+  const isNotFoundError = error?.toLowerCase().includes('not found') || error?.toLowerCase().includes('no stock')
 
   return (
     <div className="flex flex-col gap-5">
@@ -102,35 +241,33 @@ export function Research() {
       <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card">
         <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-3">Enter a ticker to analyze</p>
         <div className="flex gap-3">
-          <div className="flex-1 flex items-center gap-3 bg-[var(--bg3)] border border-[var(--border2)] rounded-xl px-4 py-3 focus-within:border-[rgba(0,232,122,0.35)] transition-colors">
-            <Search size={18} className="text-[var(--text3)] flex-shrink-0" />
-            <input
-              type="text"
-              value={ticker}
-              onChange={(e) => setTicker(e.target.value.toUpperCase())}
-              onKeyDown={(e) => e.key === 'Enter' && handleRun()}
-              placeholder="HDFCBANK, RELIANCE, INFY…"
-              className="flex-1 font-mono text-[17px] tracking-wider bg-transparent text-[var(--text)] placeholder:text-[var(--text3)] uppercase"
-              maxLength={12}
+          <div className="flex-1 relative">
+            <TickerSearch
+              value={selectedTicker}
+              onSelect={(t) => { setSelectedTicker(t); setTicker(t) }}
+              placeholder="Search ticker (e.g. RELIANCE, TCS, INFY)…"
             />
-            {ticker && (
-              <button onClick={handleClear} className="text-[var(--text3)] hover:text-[var(--text2)] text-xs font-mono">
-                ✕
-              </button>
-            )}
           </div>
-          <Button variant="primary" size="md" icon={ArrowRight} onClick={() => handleRun()} loading={isRunning}>
+          {(ticker || selectedTicker) && (
+            <button
+              onClick={handleClear}
+              className="w-10 h-10 rounded-xl bg-[var(--bg3)] border border-[var(--border)] flex items-center justify-center text-[var(--text3)] hover:text-[var(--text)] transition-colors"
+            >
+              <X size={15} />
+            </button>
+          )}
+          <Button variant="primary" size="md" icon={ArrowRight} onClick={() => handleRun()} loading={isRunning} disabled={!selectedTicker && !ticker}>
             Run Research
           </Button>
         </div>
 
         {/* Recent searches */}
         <div className="flex items-center gap-2 mt-3 flex-wrap">
-          <span className="font-mono text-2xs text-[var(--text3)]">Recent:</span>
+          <span className="font-mono text-2xs text-[var(--text3)]">Quick:</span>
           {RECENT_SEARCHES.map((sym) => (
             <button
               key={sym}
-              onClick={() => handleRun(sym)}
+              onClick={() => { setSelectedTicker(sym); setTicker(sym); handleRun(sym) }}
               className="font-mono text-xs px-2.5 py-1 rounded-lg bg-[var(--bg4)] text-[var(--text2)] border border-[var(--border)] hover:border-[var(--border2)] hover:text-[var(--text)] transition-all"
             >
               {sym}
@@ -141,9 +278,19 @@ export function Research() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[rgba(255,77,106,0.08)] border border-[rgba(255,77,106,0.2)]">
+        <div className={cn(
+          'flex items-center gap-3 px-4 py-3.5 rounded-xl border',
+          isNotFoundError
+            ? 'bg-[rgba(255,77,106,0.06)] border-[rgba(255,77,106,0.2)]'
+            : 'bg-[rgba(255,77,106,0.08)] border-[rgba(255,77,106,0.2)]',
+        )}>
           <AlertCircle size={16} className="text-[var(--red)] flex-shrink-0" />
-          <p className="font-dm text-sm text-[var(--red)]">{error}</p>
+          <div>
+            <p className="font-dm text-sm text-[var(--red)] font-medium">
+              {isNotFoundError ? 'Stock Not Found' : 'Research Failed'}
+            </p>
+            <p className="font-mono text-xs text-[var(--red)] opacity-75 mt-0.5">{error}</p>
+          </div>
         </div>
       )}
 
@@ -294,17 +441,22 @@ export function Research() {
             )}
           </div>
 
-          {/* Right */}
+          {/* Right column */}
           <div className="flex flex-col gap-4">
+            {/* Technical chart */}
+            <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card">
+              <OHLCChart ticker={report.ticker} />
+            </div>
+
             {/* Financial snapshot */}
             {report.financials_data && report.financials_data.snapshot.length > 0 && (
               <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card">
                 <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-4">Financial Snapshot</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   {report.financials_data.snapshot.map(({ label, value }) => (
-                    <div key={label} className="p-3.5 rounded-xl bg-[var(--bg3)] border border-[var(--border)]">
-                      <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-wider mb-1.5">{label}</p>
-                      <p className="num text-[var(--text)] font-bold text-[18px]eading-none">{value}</p>
+                    <div key={label} className="p-3 rounded-xl bg-[var(--bg3)] border border-[var(--border)]">
+                      <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-wider mb-1">{label}</p>
+                      <p className="font-mono text-[var(--text)] font-bold text-[15px] leading-none">{value}</p>
                     </div>
                   ))}
                 </div>
@@ -313,7 +465,7 @@ export function Research() {
 
             {/* Headlines */}
             {report.news_data && report.news_data.headlines.length > 0 && (
-              <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card flex-1">
+              <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card">
                 <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-4">Recent Headlines</p>
                 <div className="flex flex-col gap-3">
                   {report.news_data.headlines.slice(0, 5).map((h, i) => (
@@ -344,6 +496,9 @@ export function Research() {
                 </div>
               </div>
             )}
+
+            {/* Research chat */}
+            <ResearchChat report={report} />
           </div>
         </div>
       )}

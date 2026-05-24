@@ -10,6 +10,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     transactions_context: List[dict] = []
+    context_type: str = "transactions"  # "transactions" | "stock_research"
 
 
 class ChatResponse(BaseModel):

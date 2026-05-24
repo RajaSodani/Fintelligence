@@ -10,6 +10,7 @@ export interface ChatMessage {
 
 interface UseChatOptions {
   transactionsContext?: object[]
+  contextType?: 'transactions' | 'stock_research'
 }
 
 interface UseChatResult {
@@ -45,7 +46,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       const history = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }))
 
       try {
-        // Try streaming first, fall back to non-streaming
         const token = await window.Clerk?.session?.getToken()
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
         if (token) headers['Authorization'] = `Bearer ${token}`
@@ -57,6 +57,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           body: JSON.stringify({
             messages: history,
             transactions_context: options.transactionsContext ?? [],
+            context_type: options.contextType ?? 'transactions',
           }),
         })
 
@@ -93,11 +94,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           }
         }
       } catch {
-        // Fall back to non-streaming
         try {
           const { data } = await aiApi.post('/api/chat', {
             messages: history,
             transactions_context: options.transactionsContext ?? [],
+            context_type: options.contextType ?? 'transactions',
           })
 
           const aiMsg: ChatMessage = {
@@ -114,7 +115,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         setIsTyping(false)
       }
     },
-    [messages, options.transactionsContext],
+    [messages, options.transactionsContext, options.contextType],
   )
 
   const clearMessages = useCallback(() => setMessages([]), [])

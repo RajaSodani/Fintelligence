@@ -26,21 +26,29 @@ class ResearchState(TypedDict):
     errors: Annotated[List[str], operator.add]
 
 
-# ── Ticker resolution ─────────────────────────────────────────────────────────
+# ── Ticker resolution & validation ────────────────────────────────────────────
 
 def _resolve_ticker_sync(raw: str) -> tuple[str, object]:
-    """Try <RAW>.NS → <RAW>.BO → <RAW> bare. Returns (resolved, Ticker)."""
+    """Try <RAW>.NS → <RAW>.BO → <RAW> bare. Raises ValueError if not found."""
     upper = raw.upper()
+
     if "." in upper:
-        return upper, yf.Ticker(upper)
+        t = yf.Ticker(upper)
+        info = t.info or {}
+        if not (info.get("longName") or info.get("shortName") or info.get("currentPrice")):
+            raise ValueError(f"No stock data found for '{raw}'. Please verify the ticker symbol.")
+        return upper, t
 
     for candidate in (upper + ".NS", upper + ".BO", upper):
         t = yf.Ticker(candidate)
-        info = t.info
-        if info.get("currentPrice") or info.get("regularMarketPrice"):
+        info = t.info or {}
+        if info.get("currentPrice") or info.get("regularMarketPrice") or info.get("longName"):
             return candidate, t
 
-    return upper, yf.Ticker(upper)
+    raise ValueError(
+        f"Stock '{raw}' not found on NSE, BSE, or global markets. "
+        "Please check the ticker symbol and try again."
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -138,7 +146,7 @@ def _fetch_news_sync(raw: str) -> dict:
         })
 
     count = len(headlines)
-    result_label = f"{count} articles fetched · Awaiting sentiment analysis"
+    result_label = f"{count} articles fetched"
 
     return {
         "headlines": headlines,
@@ -154,41 +162,73 @@ def _fetch_financials_sync(raw: str) -> dict:
 
     currency = info.get("currency", "USD")
     current_price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
+    prev_close = info.get("previousClose") or 0
     market_cap = info.get("marketCap") or 0
     trailing_pe = info.get("trailingPE")
+    forward_pe = info.get("forwardPE")
     price_to_book = info.get("priceToBook")
     roe = info.get("returnOnEquity")
     gross_margins = info.get("grossMargins")
+    operating_margins = info.get("operatingMargins")
     revenue_growth = info.get("revenueGrowth")
+    earnings_growth = info.get("earningsGrowth")
     week_high = info.get("fiftyTwoWeekHigh")
     week_low = info.get("fiftyTwoWeekLow")
     volume = info.get("volume") or 0
+    avg_volume = info.get("averageVolume") or 0
     day_high = info.get("dayHigh") or 0
     day_low = info.get("dayLow") or 0
+    dividend_yield = info.get("dividendYield")
+    beta = info.get("beta")
+    debt_to_equity = info.get("debtToEquity")
+    eps = info.get("trailingEps")
+    target_mean = info.get("targetMeanPrice")
+    recommendation = info.get("recommendationKey", "").upper()
 
     def _val(v, formatter):
         return formatter(v) if v is not None else "N/A"
 
     snapshot = [
-        {"label": "Price",      "value": _fmt_price(current_price, currency) if current_price else "N/A"},
-        {"label": "Market Cap", "value": _fmt_market_cap(market_cap, currency) if market_cap else "N/A"},
-        {"label": "P/E Ratio",  "value": _val(trailing_pe, _fmt_ratio)},
-        {"label": "P/B Ratio",  "value": _val(price_to_book, _fmt_ratio)},
-        {"label": "ROE",        "value": _val(roe, _fmt_pct)},
-        {"label": "Gross Margin","value": _val(gross_margins, _fmt_pct)},
+        {"label": "Price",          "value": _fmt_price(current_price, currency) if current_price else "N/A"},
+        {"label": "Market Cap",     "value": _fmt_market_cap(market_cap, currency) if market_cap else "N/A"},
+        {"label": "P/E (TTM)",      "value": _val(trailing_pe, _fmt_ratio)},
+        {"label": "P/E (Fwd)",      "value": _val(forward_pe, _fmt_ratio)},
+        {"label": "P/B Ratio",      "value": _val(price_to_book, _fmt_ratio)},
+        {"label": "EPS (TTM)",      "value": f"₹{eps:.2f}" if eps and currency == "INR" else (f"${eps:.2f}" if eps else "N/A")},
+        {"label": "ROE",            "value": _val(roe, _fmt_pct)},
+        {"label": "Gross Margin",   "value": _val(gross_margins, _fmt_pct)},
+        {"label": "Op. Margin",     "value": _val(operating_margins, _fmt_pct)},
+        {"label": "Rev. Growth",    "value": _val(revenue_growth, _fmt_pct)},
+        {"label": "52W High",       "value": _fmt_price(week_high, currency) if week_high else "N/A"},
+        {"label": "52W Low",        "value": _fmt_price(week_low, currency) if week_low else "N/A"},
+        {"label": "Dividend Yield", "value": _val(dividend_yield, _fmt_pct)},
+        {"label": "Beta",           "value": f"{beta:.2f}" if beta else "N/A"},
+        {"label": "D/E Ratio",      "value": f"{debt_to_equity:.1f}" if debt_to_equity else "N/A"},
+        {"label": "Analyst Target", "value": _fmt_price(target_mean, currency) if target_mean else "N/A"},
     ]
 
     price_label = _fmt_price(current_price, currency) if current_price else "N/A"
     cap_label = _fmt_market_cap(market_cap, currency) if market_cap else "N/A"
 
+    # 52w position
+    w52_pos = ""
+    if week_high and week_low and current_price:
+        pct_from_low = ((current_price - week_low) / (week_high - week_low)) * 100 if week_high != week_low else 50
+        w52_pos = f"{pct_from_low:.0f}% above 52w low"
+
     raw_summary = (
         f"Ticker: {resolved}, Company: {info.get('longName', raw)}, "
         f"Sector: {info.get('sector', 'N/A')}, Industry: {info.get('industry', 'N/A')}, "
-        f"Currency: {currency}, Price: {current_price}, Market Cap: {market_cap}, "
-        f"PE: {trailing_pe}, PB: {price_to_book}, ROE: {roe}, "
-        f"Gross Margin: {gross_margins}, Revenue Growth: {revenue_growth}, "
-        f"52w High: {week_high}, 52w Low: {week_low}, "
-        f"Volume: {volume}, Day High: {day_high}, Day Low: {day_low}"
+        f"Currency: {currency}, Current Price: {current_price}, Previous Close: {prev_close}, "
+        f"Market Cap: {market_cap}, P/E TTM: {trailing_pe}, P/E Forward: {forward_pe}, "
+        f"P/B: {price_to_book}, EPS TTM: {eps}, ROE: {roe}, "
+        f"Gross Margin: {gross_margins}, Operating Margin: {operating_margins}, "
+        f"Revenue Growth: {revenue_growth}, Earnings Growth: {earnings_growth}, "
+        f"52W High: {week_high}, 52W Low: {week_low}, 52W Position: {w52_pos}, "
+        f"Volume: {volume}, Avg Volume: {avg_volume}, "
+        f"Day High: {day_high}, Day Low: {day_low}, "
+        f"Dividend Yield: {dividend_yield}, Beta: {beta}, D/E Ratio: {debt_to_equity}, "
+        f"Analyst Target: {target_mean}, Recommendation: {recommendation}"
     )
 
     return {
@@ -214,50 +254,52 @@ async def _run_financials_agent(ticker: str) -> dict:
 
 async def _run_sentiment_agent(ticker: str, news_data: dict, financials_data: dict) -> dict:
     news_headlines = "\n".join(
-        f"- {h['title']} ({h['source']})"
-        for h in (news_data.get("headlines") or [])[:6]
+        f"- {h['title']} ({h['source']}, {h['time']})"
+        for h in (news_data.get("headlines") or [])[:8]
     ) or "No news available."
 
-    fin_summary = financials_data.get("raw_summary", "No financial data.")
+    fin = financials_data.get("raw_summary", "No financial data.")
+    company = financials_data.get("company_name", ticker)
 
     prompt = (
-        f"Analyze market sentiment for {ticker}.\n\n"
-        f"Recent news:\n{news_headlines}\n\n"
-        f"Financial data: {fin_summary}\n\n"
+        f"You are a professional equity analyst. Analyze market sentiment for {company} ({ticker}).\n\n"
+        f"Recent news headlines:\n{news_headlines}\n\n"
+        f"Financial metrics:\n{fin}\n\n"
+        "Score each dimension 0–100 where 0=extremely bearish, 50=neutral, 100=extremely bullish.\n"
+        "Base scores on concrete signals in the data, not generic assumptions.\n\n"
         "Return ONLY valid JSON:\n"
         "{\n"
         '  "scores": [\n'
-        '    {"label": "News Sentiment", "score": <0-100>},\n'
-        '    {"label": "Social Sentiment", "score": <0-100>},\n'
-        '    {"label": "Analyst Consensus", "score": <0-100>},\n'
-        '    {"label": "Options Flow", "score": <0-100>}\n'
+        '    {"label": "News Sentiment", "score": <based on headline tone and material events>},\n'
+        '    {"label": "Technical Momentum", "score": <based on price vs 52w range, volume trends>},\n'
+        '    {"label": "Analyst Consensus", "score": <based on PE, target price vs current, recommendation>},\n'
+        '    {"label": "Fundamental Health", "score": <based on margins, growth, ROE, D/E ratio>}\n'
         "  ],\n"
         '  "overall": "<bullish|bearish|neutral>",\n'
-        '  "summary": "<one concise sentence summarising the sentiment>"\n'
+        '  "summary": "<2-3 sentence analysis of key sentiment drivers and what to watch>"\n'
         "}"
     )
 
     response = await _client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are a financial sentiment analyst. Respond only with valid JSON."},
+            {"role": "system", "content": "You are a financial sentiment analyst. Respond only with valid JSON. Base your analysis strictly on the provided data."},
             {"role": "user", "content": prompt},
         ],
         response_format={"type": "json_object"},
-        max_tokens=256,
+        max_tokens=400,
     )
 
     parsed = _parse_json_safe(response.choices[0].message.content or "{}")
 
     scores = parsed.get("scores") or [
         {"label": "News Sentiment",    "score": 50},
-        {"label": "Social Sentiment",  "score": 50},
+        {"label": "Technical Momentum","score": 50},
         {"label": "Analyst Consensus", "score": 50},
-        {"label": "Options Flow",      "score": 50},
+        {"label": "Fundamental Health","score": 50},
     ]
     overall = parsed.get("overall", "neutral")
     summary = parsed.get("summary", "Sentiment analysis complete.")
-
     top_score = max((s.get("score", 0) for s in scores), default=50)
 
     return {
@@ -275,59 +317,73 @@ async def _run_thesis_agent(
     sentiment_data: dict,
 ) -> dict:
     news_headlines = "\n".join(
-        f"- {h['title']}"
-        for h in (news_data.get("headlines") or [])[:6]
+        f"- {h['title']} ({h['source']}, {h['time']})"
+        for h in (news_data.get("headlines") or [])[:8]
     ) or "No news."
 
-    fin_summary = financials_data.get("raw_summary", "No financials.")
+    fin = financials_data.get("raw_summary", "No financials.")
+    company = financials_data.get("company_name", ticker)
     sentiment_summary = (
         f"Overall: {sentiment_data.get('overall', 'neutral')}. "
         f"{sentiment_data.get('summary', '')}"
     )
+    scores_str = ", ".join(
+        f"{s['label']}: {s['score']}/100"
+        for s in (sentiment_data.get("scores") or [])
+    )
 
     prompt = (
-        f"Generate a concise investment thesis for {ticker}.\n\n"
-        f"News:\n{news_headlines}\n\n"
-        f"Financials: {fin_summary}\n\n"
-        f"Sentiment: {sentiment_summary}\n\n"
+        f"You are a senior equity research analyst. Generate a detailed investment thesis for {company} ({ticker}).\n\n"
+        f"Financial Data:\n{fin}\n\n"
+        f"Recent News (last 8 headlines):\n{news_headlines}\n\n"
+        f"Sentiment Analysis:\n{sentiment_summary}\n"
+        f"Sentiment scores: {scores_str}\n\n"
+        "Your thesis must:\n"
+        "1. Assess current valuation vs fundamentals and historical averages\n"
+        "2. Identify 2-3 key near-term catalysts or headwinds\n"
+        "3. Reference 52-week range for technical context\n"
+        "4. Provide a risk-adjusted 12-month price target with clear rationale\n"
+        "5. Give a specific, actionable entry range and stop-loss level\n\n"
         "Return ONLY valid JSON:\n"
         "{\n"
         '  "rating": "<STRONG BUY|BUY|HOLD|SELL|STRONG SELL>",\n'
-        '  "target_price": "<e.g. ₹900 or $195>",\n'
-        '  "summary": "<2-3 sentence executive summary>",\n'
+        '  "target_price": "<12-month target e.g. ₹2,850 or $195 — must be specific>",\n'
+        '  "summary": "<3-4 sentence executive summary: business quality, growth trajectory, valuation, and key catalyst>",\n'
         '  "risks": [\n'
-        '    {"text": "<risk description>", "severity": "<amber|red>"}\n'
+        '    {"text": "<specific risk with potential magnitude of impact>", "severity": "<amber|red>"}\n'
         "  ],\n"
-        '  "verdict": "<1-2 sentence actionable verdict with entry, target, and stop-loss>"\n'
+        '  "verdict": "<2-3 sentence actionable verdict: specific entry range, 12m target, stop-loss, and time horizon>"\n'
         "}\n"
-        "Use ₹ for INR stocks and $ for USD. Generate 2-4 risks."
+        "Generate 3-5 specific risks. Use ₹ for INR stocks, $ for USD. All price levels must be specific numbers."
     )
 
     response = await _client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are a senior equity analyst. Respond only with valid JSON."},
+            {
+                "role": "system",
+                "content": (
+                    "You are a senior equity analyst at a top-tier investment bank. "
+                    "Your analysis is data-driven, specific, and actionable. "
+                    "Never give generic advice — always reference the actual numbers provided. "
+                    "Respond only with valid JSON."
+                ),
+            },
             {"role": "user", "content": prompt},
         ],
         response_format={"type": "json_object"},
-        max_tokens=512,
+        max_tokens=700,
     )
 
     parsed = _parse_json_safe(response.choices[0].message.content or "{}")
 
-    rating = parsed.get("rating", "HOLD")
-    target_price = parsed.get("target_price", "N/A")
-    summary = parsed.get("summary", "Analysis complete.")
-    risks = parsed.get("risks") or [{"text": "Market uncertainty", "severity": "amber"}]
-    verdict = parsed.get("verdict", "Exercise caution and monitor closely.")
-
     return {
-        "rating": rating,
-        "target_price": target_price,
-        "summary": summary,
-        "risks": risks,
-        "verdict": verdict,
-        "result_label": f"{rating} · Target {target_price}",
+        "rating": parsed.get("rating", "HOLD"),
+        "target_price": parsed.get("target_price", "N/A"),
+        "summary": parsed.get("summary", "Analysis complete."),
+        "risks": parsed.get("risks") or [{"text": "Market uncertainty", "severity": "amber"}],
+        "verdict": parsed.get("verdict", "Exercise caution and monitor closely."),
+        "result_label": f"{parsed.get('rating', 'HOLD')} · Target {parsed.get('target_price', 'N/A')}",
     }
 
 
@@ -382,10 +438,7 @@ def _make_sentiment_node(queue: asyncio.Queue):
             err = f"Sentiment agent: {exc}"
             await queue.put({"type": "agent_error", "agent": "sentiment", "error": err})
             return {
-                "sentiment_data": {
-                    "scores": [], "overall": "neutral",
-                    "summary": err, "result_label": "Failed",
-                },
+                "sentiment_data": {"scores": [], "overall": "neutral", "summary": err, "result_label": "Failed"},
                 "errors": [err],
             }
     return node
@@ -424,15 +477,11 @@ def _build_graph(queue: asyncio.Queue):
     workflow.add_node("sentiment_agent",  _make_sentiment_node(queue))
     workflow.add_node("thesis_agent",     _make_thesis_node(queue))
 
-    # News + Financials run in parallel from START
     workflow.add_edge(START, "news_agent")
     workflow.add_edge(START, "financials_agent")
-
-    # Sentiment fans-in after both complete
     workflow.add_edge("news_agent",       "sentiment_agent")
     workflow.add_edge("financials_agent", "sentiment_agent")
-
-    workflow.add_edge("sentiment_agent", "thesis_agent")
+    workflow.add_edge("sentiment_agent",  "thesis_agent")
     workflow.add_edge("thesis_agent", END)
 
     return workflow.compile()
@@ -443,6 +492,15 @@ def _build_graph(queue: asyncio.Queue):
 async def stream_research(ticker: str) -> AsyncGenerator[str, None]:
     queue: asyncio.Queue = asyncio.Queue()
     final_state: dict = {}
+
+    # Validate ticker before starting the full pipeline
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(_executor, _resolve_ticker_sync, ticker.upper())
+    except ValueError as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
 
     async def _run():
         try:

@@ -145,8 +145,13 @@ export function useResearch(): UseResearchResult {
               setAgentStates((prev) => ({ ...prev, [agent]: 'running' }))
             } else if (type === 'agent_done') {
               const agent = parsed.agent as AgentId
-              setAgentStates((prev) => ({ ...prev, [agent]: 'done' }))
-              setAgentData((prev) => ({ ...prev, [agent]: parsed.data }))
+              const data = parsed.data
+              // 2s visual delay on news/financials so the "Running" state is visible
+              const delay = (agent === 'news' || agent === 'financials') ? 2000 : 0
+              setTimeout(() => {
+                setAgentStates((prev) => ({ ...prev, [agent]: 'done' }))
+                setAgentData((prev) => ({ ...prev, [agent]: data }))
+              }, delay)
             } else if (type === 'agent_error') {
               const agent = parsed.agent as AgentId
               setAgentStates((prev) => ({ ...prev, [agent]: 'error' }))

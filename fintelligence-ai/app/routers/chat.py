@@ -12,7 +12,7 @@ async def chat(
     request: ChatRequest,
     _user_id: str = Depends(verify_clerk_token),
 ):
-    result = await openai_service.chat(request.messages, request.transactions_context)
+    result = await openai_service.chat(request.messages, request.transactions_context, request.context_type)
     return ChatResponse(message=result["message"], tokens_used=result["tokens_used"])
 
 
@@ -22,7 +22,7 @@ async def chat_stream(
     _user_id: str = Depends(verify_clerk_token),
 ):
     async def generate():
-        async for chunk in openai_service.stream_chat(request.messages, request.transactions_context):
+        async for chunk in openai_service.stream_chat(request.messages, request.transactions_context, request.context_type):
             yield f"data: {chunk}\n\n"
         yield "data: [DONE]\n\n"
 
