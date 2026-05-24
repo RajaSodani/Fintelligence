@@ -3,7 +3,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { TransactionModal } from '@/components/shared/TransactionModal'
 import { TransactionRow } from '@/components/shared/TransactionRow'
-import type { Transaction } from '@/types'
+import type { Transaction } from '@/hooks/useTransactions'
 
 interface Props {
   transactions: Transaction[]
