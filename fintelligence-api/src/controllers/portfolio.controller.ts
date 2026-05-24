@@ -110,3 +110,49 @@ export async function deleteHolding(req: Request, res: Response): Promise<void> 
   await prisma.holding.delete({ where: { id } })
   res.json({ success: true })
 }
+
+const importSchema = z.object({
+  holdings: z.array(z.object({
+    ticker:      z.string().min(1).toUpperCase(),
+    quantity:    z.number().positive(),
+    avgBuyPrice: z.number().positive(),
+    resolution:  z.enum(['overwrite', 'skip', 'add']).default('overwrite'),
+  })),
+})
+
+export async function importHoldings(req: Request, res: Response): Promise<void> {
+  const parsed = importSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
+
+  const user = await resolveUser(req.userId, res)
+  if (!user) return
+
+  const results: { ticker: string; status: 'created' | 'updated' | 'skipped' }[] = []
+
+  for (const item of parsed.data.holdings) {
+    const existing = await prisma.holding.findFirst({ where: { userId: user.id, ticker: item.ticker } })
+
+    if (!existing) {
+      let companyName = item.ticker
+      try {
+        const { getQuote } = await import('../services/market.service')
+        const q = await getQuote(item.ticker)
+        companyName = q.companyName
+      } catch { /* fallback to ticker */ }
+      await prisma.holding.create({ data: { userId: user.id, ticker: item.ticker, companyName, quantity: item.quantity, avgBuyPrice: item.avgBuyPrice } })
+      results.push({ ticker: item.ticker, status: 'created' })
+    } else if (item.resolution === 'skip') {
+      results.push({ ticker: item.ticker, status: 'skipped' })
+    } else if (item.resolution === 'overwrite') {
+      await prisma.holding.update({ where: { id: existing.id }, data: { quantity: item.quantity, avgBuyPrice: item.avgBuyPrice } })
+      results.push({ ticker: item.ticker, status: 'updated' })
+    } else {
+      const newQty = existing.quantity + item.quantity
+      const newAvg = ((existing.quantity * existing.avgBuyPrice) + (item.quantity * item.avgBuyPrice)) / newQty
+      await prisma.holding.update({ where: { id: existing.id }, data: { quantity: newQty, avgBuyPrice: newAvg } })
+      results.push({ ticker: item.ticker, status: 'updated' })
+    }
+  }
+
+  res.json({ imported: results.length, results })
+}

@@ -1,6 +1,7 @@
 import { Bell, Search } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useUser } from '@/hooks/useUser'
+import { useMarketHours } from '@/hooks/useMarketHours';
 
 const pageMeta: Record<string, { title: string; sub: string }> = {
   '/dashboard': { title: 'Dashboard',         sub: 'Overview of your finances' },
@@ -12,11 +13,26 @@ const pageMeta: Record<string, { title: string; sub: string }> = {
 export function TopBar() {
   const location = useLocation()
   const { user } = useUser()
+  const { isMarketOpen } = useMarketHours()
   const meta = pageMeta[location.pathname] ?? { title: 'Fintelligence', sub: '' }
 
   const initials = user
     ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || '?'
     : '?'
+
+  const marketStatus = isMarketOpen
+    ? {
+        label: 'Live',
+        color: 'var(--green)',
+        border: 'rgba(0,232,122,0.15)',
+        background: 'rgba(0,232,122,0.05)',
+      }
+    : {
+        label: 'Closed',
+        color: 'var(--red)',
+        border: 'rgba(255,107,107,0.15)',
+        background: 'rgba(255,107,107,0.05)',
+      }
 
   return (
     <header
@@ -49,9 +65,23 @@ export function TopBar() {
         </button>
 
         {/* Live indicator */}
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[rgba(0,232,122,0.15)] bg-[rgba(0,232,122,0.05)]">
-          <span className="pulse-dot w-2 h-2 rounded-full bg-[var(--green)] flex-shrink-0" />
-          <span className="font-mono text-2xs text-[var(--green)] tracking-[0.1em] uppercase hidden sm:block">Live</span>
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-xl border"
+          style={{
+            borderColor: marketStatus.border,
+            background: marketStatus.background,
+          }}
+        >
+          <span
+            className="pulse-dot w-2 h-2 rounded-full flex-shrink-0"
+            style={{ background: marketStatus.color }}
+          />
+          <span
+            className="font-mono text-2xs tracking-[0.1em] uppercase hidden sm:block"
+            style={{ color: marketStatus.color }}
+          >
+            {marketStatus.label}
+          </span>
         </div>
 
         {/* Notification bell */}

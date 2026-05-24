@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { TrendingUp, TrendingDown, Plus, Bell, Trash2, X } from 'lucide-react'
+import { TrendingUp, TrendingDown, Plus, Bell, Trash2, X, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { OHLCChart } from '@/components/charts/OHLCChart'
+import { TickerSearch } from '@/components/portfolio/TickerSearch'
+import { ExcelImportModal } from '@/components/portfolio/ExcelImportModal'
 import { usePortfolio } from '@/hooks/usePortfolio'
 import { useWatchlist } from '@/hooks/useWatchlist'
 import { useAlerts } from '@/hooks/useAlerts'
 import { useMarketStrip } from '@/hooks/useMarketData'
+import { useMarketHours } from '@/hooks/useMarketHours'
 import { cn, formatCurrency, formatPercent } from '@/lib/utils'
 import type { Holding, WatchlistItem, PriceAlert } from '@/types'
 
@@ -38,6 +41,7 @@ function Sparkline({ data, up }: { data: number[]; up: boolean }) {
 
 function MarketStrip() {
   const { quotes, loading } = useMarketStrip(30_000)
+  const { isMarketOpen } = useMarketHours()
 
   if (loading && !quotes.length) return (
     <div className="rounded-2xl border border-[var(--border2)] bg-[var(--bg2)] px-5 py-3 flex items-center gap-3">
@@ -71,7 +75,10 @@ function MarketStrip() {
             </div>
           )
         })}
-        <span className="font-mono text-2xs text-[var(--text3)] flex-shrink-0 ml-auto">Refreshes every 30s</span>
+        <div className="flex items-center gap-2 font-mono text-2xs text-[var(--text3)] flex-shrink-0 ml-auto">
+          <span className={cn('w-1.5 h-1.5 rounded-full', isMarketOpen ? 'bg-[var(--green)] animate-pulse' : 'bg-[var(--text3)]')} />
+          <span>{isMarketOpen ? 'Market Open · Live' : 'Market Closed'}</span>
+        </div>
       </div>
     </div>
   )
@@ -79,23 +86,47 @@ function MarketStrip() {
 
 // ─── Add Holding Modal ────────────────────────────────────────────────────────
 
-function AddHoldingModal({ onAdd, onClose }: {
+type AddResolution = 'overwrite' | 'add' | 'skip'
+
+function AddHoldingModal({ onAdd, onClose, existingHoldings }: {
   onAdd: (ticker: string, qty: number, price: number) => Promise<void>
   onClose: () => void
+  existingHoldings: Holding[]
 }) {
-  const [ticker, setTicker]   = useState('')
-  const [qty, setQty]         = useState('')
-  const [price, setPrice]     = useState('')
-  const [adding, setAdding]   = useState(false)
-  const [err, setErr]         = useState('')
+  const [ticker, setTicker]           = useState('')
+  const [qty, setQty]                 = useState('')
+  const [price, setPrice]             = useState('')
+  const [adding, setAdding]           = useState(false)
+  const [err, setErr]                 = useState('')
+  const [resolution, setResolution]   = useState<AddResolution>('overwrite')
+  const [showConflict, setShowConflict] = useState(false)
+
+  const existing = existingHoldings.find((h) => h.ticker === ticker.trim().toUpperCase())
 
   const handleSubmit = async () => {
     if (!ticker.trim() || !qty || !price) { setErr('All fields required'); return }
     const q = parseFloat(qty), p = parseFloat(price)
     if (isNaN(q) || isNaN(p) || q <= 0 || p <= 0) { setErr('Enter valid numbers'); return }
+
+    const t = ticker.trim().toUpperCase()
+
+    // If ticker already exists and we haven't shown the conflict prompt yet, show it
+    if (existing && !showConflict) {
+      setShowConflict(true)
+      return
+    }
+
+    if (resolution === 'skip') { onClose(); return }
+
     setAdding(true)
     try {
-      await onAdd(ticker.trim().toUpperCase(), q, p)
+      if (resolution === 'add' && existing) {
+        const newQty = existing.quantity + q
+        const newAvg = ((existing.quantity * existing.avgBuyPrice) + (q * p)) / newQty
+        await onAdd(t, newQty, newAvg)
+      } else {
+        await onAdd(t, q, p)
+      }
       onClose()
     } catch {
       setErr('Failed to add holding')
@@ -104,6 +135,8 @@ function AddHoldingModal({ onAdd, onClose }: {
     }
   }
 
+  const inputClass = 'w-full bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-4 py-2.5 font-dm text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(7,9,15,0.7)', backdropFilter: 'blur(8px)' }}>
       <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-6 w-full max-w-sm shadow-card">
@@ -111,9 +144,17 @@ function AddHoldingModal({ onAdd, onClose }: {
           <p className="font-syne font-bold text-[16px] text-[var(--text)]">Add Holding</p>
           <button onClick={onClose} className="text-[var(--text3)] hover:text-[var(--text)] transition-colors"><X size={18} /></button>
         </div>
+
         <div className="flex flex-col gap-3">
+          <div>
+            <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1.5">Ticker</p>
+            <TickerSearch
+              value={ticker}
+              onSelect={(t) => { setTicker(t); setErr(''); setShowConflict(false) }}
+              placeholder="Search ticker (e.g. RELIANCE, TCS)"
+            />
+          </div>
           {[
-            { label: 'Ticker', value: ticker, set: setTicker, placeholder: 'e.g. RELIANCE, TCS, INFY' },
             { label: 'Quantity', value: qty, set: setQty, placeholder: 'e.g. 10' },
             { label: 'Avg Buy Price (₹)', value: price, set: setPrice, placeholder: 'e.g. 2800' },
           ].map(({ label, value, set, placeholder }) => (
@@ -121,14 +162,53 @@ function AddHoldingModal({ onAdd, onClose }: {
               <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1.5">{label}</p>
               <input
                 value={value}
-                onChange={(e) => { set(e.target.value); setErr('') }}
+                onChange={(e) => { set(e.target.value); setErr(''); setShowConflict(false) }}
                 placeholder={placeholder}
-                className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-4 py-2.5 font-dm text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors"
+                className={inputClass}
               />
             </div>
           ))}
+
+          {/* Conflict resolution */}
+          {showConflict && existing && (
+            <div className="bg-[rgba(255,170,0,0.07)] border border-[rgba(255,170,0,0.2)] rounded-xl p-3 flex flex-col gap-2">
+              <p className="font-mono text-xs text-[var(--amber)]">
+                {existing.ticker} already in portfolio ({existing.quantity} @ ₹{existing.avgBuyPrice.toLocaleString('en-IN')})
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {([
+                  { value: 'overwrite', label: 'Overwrite', sub: `Replace with ${qty} shares @ ₹${price}` },
+                  { value: 'add',       label: 'Add to existing', sub: `Merge → ${(existing.quantity + parseFloat(qty || '0')).toFixed(2)} shares, recalc avg` },
+                  { value: 'skip',      label: 'Skip', sub: 'Keep existing, close modal' },
+                ] as { value: AddResolution; label: string; sub: string }[]).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setResolution(opt.value)}
+                    className={cn(
+                      'flex items-start gap-2.5 px-3 py-2 rounded-lg border text-left transition-all',
+                      resolution === opt.value
+                        ? 'border-[rgba(0,232,122,0.35)] bg-[rgba(0,232,122,0.07)]'
+                        : 'border-[var(--border)] hover:bg-[var(--bg4)]',
+                    )}
+                  >
+                    <span className={cn('w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 mt-0.5',
+                      resolution === opt.value ? 'border-[var(--green)] bg-[var(--green)]' : 'border-[var(--border2)]'
+                    )} />
+                    <div>
+                      <p className="font-mono text-xs font-medium text-[var(--text)]">{opt.label}</p>
+                      <p className="font-mono text-2xs text-[var(--text3)]">{opt.sub}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {err && <p className="font-mono text-xs text-[var(--red)]">{err}</p>}
-          <Button variant="primary" size="md" loading={adding} onClick={handleSubmit}>Add Holding</Button>
+          <Button variant="primary" size="md" loading={adding} onClick={handleSubmit}>
+            {showConflict ? 'Confirm' : 'Add Holding'}
+          </Button>
         </div>
       </div>
     </div>
@@ -172,11 +252,10 @@ function CreateAlertModal({ onCreate, onClose }: {
         <div className="flex flex-col gap-3">
           <div>
             <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1.5">Ticker</p>
-            <input
+            <TickerSearch
               value={ticker}
-              onChange={(e) => { setTicker(e.target.value); setErr('') }}
-              placeholder="e.g. TCS, RELIANCE, INFY"
-              className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-4 py-2.5 font-dm text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors"
+              onSelect={(t) => { setTicker(t); setErr('') }}
+              placeholder="Search ticker (e.g. TCS, INFY)"
             />
           </div>
           <div>
@@ -306,13 +385,13 @@ function WatchlistPanel({
   onRemove: (id: string) => void
   onAdd: (ticker: string) => void
 }) {
-  const [input, setInput] = useState('')
+  const [selectedTicker, setSelectedTicker] = useState('')
 
   const handleAdd = () => {
-    const t = input.trim()
+    const t = selectedTicker.trim()
     if (!t) return
     onAdd(t)
-    setInput('')
+    setSelectedTicker('')
   }
 
   return (
@@ -351,13 +430,13 @@ function WatchlistPanel({
         )}
       </div>
       <div className="px-5 py-3 border-t border-[var(--border)] flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          placeholder="Add ticker (e.g. WIPRO, TITAN)"
-          className="flex-1 bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3 py-2 font-mono text-xs text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors"
-        />
+        <div className="flex-1">
+          <TickerSearch
+            value={selectedTicker}
+            onSelect={(t) => setSelectedTicker(t)}
+            placeholder="Search ticker to watch…"
+          />
+        </div>
         <Button variant="ghost" size="sm" icon={Plus} onClick={handleAdd}>Add</Button>
       </div>
     </div>
@@ -433,9 +512,11 @@ export function Market() {
   const portfolio  = usePortfolio()
   const watchlist  = useWatchlist()
   const alertsHook = useAlerts()
+  const { isMarketOpen } = useMarketHours()
 
   const [showAddHolding, setShowAddHolding]   = useState(false)
   const [showAddAlert, setShowAddAlert]       = useState(false)
+  const [showImport, setShowImport]           = useState(false)
   const [chartTicker, setChartTicker]         = useState<string | null>(null)
 
   const { holdings, totalValue, totalPnl, totalPnlPercent, dayPnl, loading: pLoading } = portfolio
@@ -463,6 +544,12 @@ export function Market() {
             <p className="font-syne font-extrabold text-[40px] text-[var(--text)] leading-none">
               {pLoading ? '…' : `₹${(totalValue / 100000).toFixed(2)}L`}
             </p>
+            {isMarketOpen && !pLoading && (
+              <p className="font-mono text-2xs text-[var(--green)] mt-1 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] animate-pulse inline-block" />
+                Live · updates every 30s
+              </p>
+            )}
           </div>
 
           <div className="flex gap-6 mb-1">
@@ -486,6 +573,7 @@ export function Market() {
           </div>
 
           <div className="ml-auto flex gap-2">
+            <Button variant="ghost" size="sm" icon={Upload} onClick={() => setShowImport(true)}>Import</Button>
             <Button variant="ghost" size="sm" icon={Plus} onClick={() => setShowAddHolding(true)}>Add Holding</Button>
             <Button variant="ghost" size="sm" icon={Bell} onClick={() => setShowAddAlert(true)}>Set Alert</Button>
           </div>
@@ -572,6 +660,7 @@ export function Market() {
       {/* Modals */}
       {showAddHolding && (
         <AddHoldingModal
+          existingHoldings={holdings}
           onAdd={(ticker, qty, price) => portfolio.addHolding(ticker, qty, price)}
           onClose={() => setShowAddHolding(false)}
         />
@@ -580,6 +669,13 @@ export function Market() {
         <CreateAlertModal
           onCreate={(ticker, price, condition) => alertsHook.createAlert(ticker, price, condition)}
           onClose={() => setShowAddAlert(false)}
+        />
+      )}
+      {showImport && (
+        <ExcelImportModal
+          existingHoldings={holdings}
+          onClose={() => setShowImport(false)}
+          onImported={portfolio.refetch}
         />
       )}
 

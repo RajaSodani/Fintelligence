@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { coreApi } from '@/lib/axios'
 import type { PortfolioSummary } from '@/types'
+import { useMarketHours } from './useMarketHours'
 
 interface UsePortfolioResult extends PortfolioSummary {
   loading: boolean
   error: string | null
-  refetch: () => void
+  refetch: () => Promise<void>
   addHolding: (ticker: string, quantity: number, avgBuyPrice: number) => Promise<void>
   deleteHolding: (id: string) => Promise<void>
 }
@@ -20,6 +21,7 @@ export function usePortfolio(): UsePortfolioResult {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { isMarketOpen } = useMarketHours()
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -35,6 +37,13 @@ export function usePortfolio(): UsePortfolioResult {
   }, [])
 
   useEffect(() => { fetch() }, [fetch])
+
+  // Poll every 30s during market hours
+  useEffect(() => {
+    if (!isMarketOpen) return
+    const id = setInterval(fetch, 30_000)
+    return () => clearInterval(id)
+  }, [fetch, isMarketOpen])
 
   const addHolding = useCallback(async (ticker: string, quantity: number, avgBuyPrice: number) => {
     await coreApi.post('/api/v1/portfolio', { ticker, quantity, avgBuyPrice })

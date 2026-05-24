@@ -274,6 +274,45 @@ export async function getSparkline(ticker: string): Promise<number[]> {
   }
 }
 
+// ─── Instrument search ───────────────────────────────────────────────────────
+
+export interface SearchResult {
+  ticker: string
+  companyName: string
+  exchange: string
+}
+
+export async function searchInstruments(query: string): Promise<SearchResult[]> {
+  if (!query || query.length < 2) return []
+  try {
+    const { data } = await axios.get<{ quotes?: Array<{
+      symbol?: string; longname?: string; shortname?: string; exchange?: string; quoteType?: string
+    }> }>(
+      'https://query2.finance.yahoo.com/v1/finance/search',
+      {
+        params: { q: query, newsCount: 0, quotesCount: 10, enableFuzzyQuery: false },
+        timeout: 5_000,
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      }
+    )
+    return (data.quotes ?? [])
+      .filter((q) => {
+        if (q.quoteType !== 'EQUITY') return false
+        const sym = q.symbol ?? ''
+        return sym.endsWith('.NS') || sym.endsWith('.BO') || q.exchange === 'NSI' || q.exchange === 'BSE'
+      })
+      .map((q) => ({
+        ticker:      (q.symbol ?? '').replace(/\.(NS|BO)$/, ''),
+        companyName: q.longname ?? q.shortname ?? q.symbol ?? '',
+        exchange:    q.exchange === 'NSI' ? 'NSE' : q.exchange === 'BSE' ? 'BSE' : (q.exchange ?? ''),
+      }))
+      .filter((q) => q.ticker && q.companyName)
+      .slice(0, 8)
+  } catch {
+    return []
+  }
+}
+
 // ─── Market strip ─────────────────────────────────────────────────────────────
 
 export const MARKET_STRIP_TICKERS = ['NIFTY 50', 'SENSEX', 'RELIANCE', 'TCS', 'INFY', 'HDFCBANK']
