@@ -65,9 +65,9 @@ export function SpendingDonut({ data }: Props) {
               ))}
             </Pie>
             <Tooltip
-              formatter={(value: number) => [formatINR(value), 'Spend']}
+              formatter={(value: number, _name: string, props: { payload?: DonutSlice }) => [formatINR(value), props.payload?.category ?? 'Spend']}
               contentStyle={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
-              itemStyle={{ color: 'var(--text1)' }}
+              itemStyle={{ color: 'var(--text2)' }}
             />
           </PieChart>
         </ResponsiveContainer>

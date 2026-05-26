@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { TrendingUp, TrendingDown, Plus, Bell, Trash2, X, Upload } from 'lucide-react'
+import { TrendingUp, TrendingDown, Plus, Bell, Trash2, X, Upload, Pencil, Check } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -445,7 +445,34 @@ function WatchlistPanel({
 
 // ─── Alerts Panel ─────────────────────────────────────────────────────────────
 
-function AlertsPanel({ alerts, onDelete }: { alerts: PriceAlert[]; onDelete: (id: string) => void }) {
+function AlertsPanel({ alerts, onDelete, onUpdate }: {
+  alerts: PriceAlert[]
+  onDelete: (id: string) => void
+  onUpdate: (id: string, targetPrice: number, condition: 'ABOVE' | 'BELOW') => Promise<void>
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editPrice, setEditPrice] = useState('')
+  const [editCond, setEditCond] = useState<'ABOVE' | 'BELOW'>('ABOVE')
+  const [saving, setSaving] = useState(false)
+
+  const startEdit = (alert: PriceAlert) => {
+    setEditingId(alert.id)
+    setEditPrice(String(alert.targetPrice))
+    setEditCond(alert.condition)
+  }
+
+  const handleSave = async (id: string) => {
+    const price = parseFloat(editPrice)
+    if (!price || price <= 0) return
+    setSaving(true)
+    try {
+      await onUpdate(id, price, editCond)
+      setEditingId(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
       <div className="px-5 py-4 border-b border-[var(--border)]">
@@ -455,44 +482,88 @@ function AlertsPanel({ alerts, onDelete }: { alerts: PriceAlert[]; onDelete: (id
         {alerts.map((alert) => {
           const distPct = alert.distancePercent ?? 0
           const up = alert.condition === 'ABOVE'
+          const isEditing = editingId === alert.id
           return (
             <div key={alert.id} className="px-5 py-4 hover:bg-[var(--bg3)] transition-colors group">
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-mono text-[14px] font-medium text-[var(--text)]">{alert.ticker}</span>
-                    {alert.isTriggered ? (
-                      <Badge variant="green" dot>Triggered</Badge>
-                    ) : (
-                      <Badge variant={up ? 'blue' : 'amber'} dot>{alert.condition}</Badge>
-                    )}
-                  </div>
-                  <p className="font-dm text-xs text-[var(--text3)]">
-                    Target: {formatCurrency(alert.targetPrice)} · Current: {formatCurrency(alert.currentPrice)}
-                  </p>
-                </div>
+              {isEditing ? (
                 <div className="flex items-center gap-2">
-                  {!alert.isTriggered && (
-                    <p className="font-mono text-xs text-[var(--text3)]">{distPct.toFixed(1)}% away</p>
-                  )}
-                  <button
-                    onClick={() => onDelete(alert.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text3)] hover:text-[var(--red)]"
+                  <select
+                    value={editCond}
+                    onChange={(e) => setEditCond(e.target.value as 'ABOVE' | 'BELOW')}
+                    className="bg-[var(--bg4)] border border-[var(--border2)] rounded-lg px-2 py-1.5 font-mono text-xs text-[var(--text)] outline-none"
                   >
-                    <Trash2 size={14} />
+                    <option value="ABOVE">ABOVE</option>
+                    <option value="BELOW">BELOW</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={editPrice}
+                    onChange={(e) => setEditPrice(e.target.value)}
+                    className="flex-1 bg-[var(--bg4)] border border-[var(--border2)] rounded-lg px-3 py-1.5 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(0,232,122,0.4)]"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => handleSave(alert.id)}
+                    disabled={saving}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--green)] hover:bg-[rgba(0,232,122,0.1)]"
+                  >
+                    <Check size={13} />
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--text3)] hover:text-[var(--text)]"
+                  >
+                    <X size={13} />
                   </button>
                 </div>
-              </div>
-              {!alert.isTriggered && (
-                <div className="h-1 bg-[var(--bg4)] rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${Math.max(4, Math.min(100, 100 - distPct * 3))}%`,
-                      background: up ? 'var(--blue)' : 'var(--amber)',
-                    }}
-                  />
-                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="font-mono text-[14px] font-medium text-[var(--text)]">{alert.ticker}</span>
+                        {alert.isTriggered ? (
+                          <Badge variant="green" dot>Triggered</Badge>
+                        ) : (
+                          <Badge variant={up ? 'blue' : 'amber'} dot>{alert.condition}</Badge>
+                        )}
+                      </div>
+                      <p className="font-dm text-xs text-[var(--text3)]">
+                        Target: {formatCurrency(alert.targetPrice)} · Current: {formatCurrency(alert.currentPrice)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {!alert.isTriggered && (
+                        <p className="font-mono text-xs text-[var(--text3)]">{distPct.toFixed(1)}% away</p>
+                      )}
+                      {!alert.isTriggered && (
+                        <button
+                          onClick={() => startEdit(alert)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text3)] hover:text-[var(--blue)]"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => onDelete(alert.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text3)] hover:text-[var(--red)]"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  {!alert.isTriggered && (
+                    <div className="h-1 bg-[var(--bg4)] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.max(4, Math.min(100, 100 - distPct * 3))}%`,
+                          background: up ? 'var(--blue)' : 'var(--amber)',
+                        }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )
@@ -632,6 +703,7 @@ export function Market() {
             <AlertsPanel
               alerts={alertsHook.alerts}
               onDelete={(id) => alertsHook.deleteAlert(id)}
+              onUpdate={(id, price, cond) => alertsHook.updateAlert(id, price, cond)}
             />
           )}
 

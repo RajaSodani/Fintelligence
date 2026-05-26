@@ -2,18 +2,18 @@ import type { Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { subMonths, startOfMonth, endOfMonth, format } from 'date-fns'
 import type { TransactionQueryParams } from '../types'
-import { buildTransactionWhere } from '../services/transactions.service'
+import { buildTransactionWhere, categorizeTransaction } from '../services/transactions.service'
 
 const prisma = new PrismaClient()
 
 export async function getTransactions(req: Request, res: Response): Promise<void> {
-  const { limit = '50', offset = '0', category, startDate, endDate } =
+  const { limit = '50', offset = '0', category, startDate, endDate, name } =
     req.query as TransactionQueryParams
 
   const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
-  const where = buildTransactionWhere(user.id, { category, startDate, endDate })
+  const where = buildTransactionWhere(user.id, { category, startDate, endDate, name })
 
   const [transactions, total] = await Promise.all([
     prisma.transaction.findMany({
@@ -94,7 +94,6 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
   const totalLiabilities = liabilities.reduce((s, a) => s + a.balance, 0)
   const netWorth = totalAssets - totalLiabilities
 
-  // Snapshot today's net worth for trend tracking
   if (accounts.length > 0) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -109,7 +108,6 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
     }
   }
 
-  // Build cashflow-derived trend (6 months) anchored to current net worth
   const now = new Date()
   const allTx = await prisma.transaction.findMany({ where: { userId: user.id, pending: false } })
 
@@ -124,8 +122,6 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
     monthlyNet.push(income - expenses)
   }
 
-  // Walk backwards from current net worth to reconstruct historical balances.
-  // For each step back: previous_balance = current_balance - that_month's_net_income
   const trendPoints: Array<{ month: string; value: number }> = []
   let running = netWorth
   for (let i = 0; i <= 5; i++) {
@@ -133,14 +129,13 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
     trendPoints.unshift({ month: format(d, 'MMM'), value: Math.round(running) })
     running -= monthlyNet[5 - i] ?? 0
   }
-  const trend = trendPoints
 
   res.json({
     netWorth,
     totalAssets,
     totalLiabilities,
     accounts: accounts.map((a) => ({ id: a.id, name: a.name, type: a.type, balance: a.balance })),
-    trend,
+    trend: trendPoints,
   })
 }
 
@@ -163,4 +158,66 @@ export async function getCashflow(req: Request, res: Response): Promise<void> {
   }
 
   res.json(cashflow)
+}
+
+export async function updateTransactionCategory(req: Request, res: Response): Promise<void> {
+  const { id } = req.params
+  const { category } = req.body as { category: string }
+  if (!category) { res.status(400).json({ error: 'category is required' }); return }
+
+  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  const tx = await prisma.transaction.findFirst({ where: { id, userId: user.id } })
+  if (!tx) { res.status(404).json({ error: 'Transaction not found' }); return }
+
+  const updated = await prisma.transaction.update({ where: { id }, data: { category } })
+  res.json(updated)
+}
+
+export async function createManualTransaction(req: Request, res: Response): Promise<void> {
+  const { name, amount, isCredit, category, date } = req.body as {
+    name: string; amount: number; isCredit: boolean; category?: string; date: string
+  }
+  if (!name || amount == null || !date) {
+    res.status(400).json({ error: 'name, amount, and date are required' }); return
+  }
+
+  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  const externalId = `manual-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const tx = await prisma.transaction.create({
+    data: {
+      userId: user.id,
+      externalTxnId: externalId,
+      name,
+      amount: isCredit ? -Math.abs(amount) : Math.abs(amount),
+      category: category ?? categorizeTransaction(name),
+      date: new Date(date),
+      pending: false,
+    },
+  })
+  res.json(tx)
+}
+
+export async function createManualAccount(req: Request, res: Response): Promise<void> {
+  const { name, type, balance } = req.body as { name: string; type: string; balance: number }
+  if (!name || balance == null) {
+    res.status(400).json({ error: 'name and balance are required' }); return
+  }
+
+  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  const account = await prisma.account.create({
+    data: {
+      userId: user.id,
+      name,
+      type: type ?? 'depository',
+      balance: parseFloat(String(balance)),
+      currency: 'INR',
+    },
+  })
+  res.json(account)
 }

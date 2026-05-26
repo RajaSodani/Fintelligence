@@ -1,5 +1,4 @@
 import { useNavigate } from 'react-router-dom'
-import { CATEGORY_COLORS } from '@/components/shared/TransactionRow'
 import { OverviewCards } from '@/components/dashboard/OverviewCards'
 import { PortfolioBanner } from '@/components/dashboard/PortfolioBanner'
 import { NetWorthChart } from '@/components/dashboard/NetWorthChart'
@@ -20,18 +19,13 @@ export function Dashboard() {
   const { totalValue, totalPnlPercent, dayPnl, holdings, loading: pLoading } = usePortfolio()
 
   const totalNetWorth = netWorth + (!pLoading ? totalValue : 0)
-
   const trendWithPortfolio = trend.map((p) => ({ ...p, value: p.value + (!pLoading ? totalValue : 0) }))
 
   const cashInHand = nwAccounts
     .filter((a) => ['depository', 'deposit', 'recurring_depost', 'term_deposit'].includes(a.type.toLowerCase()))
     .reduce((s, a) => s + a.balance, 0)
 
-  const donutData = byCategory
-    .filter((c) => c.category !== 'Income')
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 3)
-    .map((c) => ({ category: c.category, amount: c.total, color: CATEGORY_COLORS[c.category] ?? 'var(--text3)' }))
+  const spendingCategories = byCategory.filter((c) => c.category !== 'Income')
 
   const transactionsContext = transactions.slice(0, 30).map((t) => ({
     name: t.name, amount: t.amount, category: t.category, date: t.date,
@@ -66,7 +60,7 @@ export function Dashboard() {
           totalNetWorth={totalNetWorth}
           loading={nwLoading || pLoading}
         />
-        <SpendingBreakdown data={donutData} loading={summaryLoading} />
+        <SpendingBreakdown categories={spendingCategories} loading={summaryLoading} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4">

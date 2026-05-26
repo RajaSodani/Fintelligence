@@ -53,5 +53,18 @@ export function useTransactionSummary(): SummaryResult {
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    const handler = () => {
+      setLoading(true)
+      coreApi.get('/api/v1/transactions/summary').then(({ data }) => {
+        setByCategory(data.byCategory ?? [])
+        setMonthly(data.monthly ?? [])
+        setComparison(data.comparison ?? null)
+      }).catch(() => {}).finally(() => setLoading(false))
+    }
+    window.addEventListener('finmind:sync', handler)
+    return () => window.removeEventListener('finmind:sync', handler)
+  }, [])
+
   return { byCategory, monthly, comparison, loading, error }
 }

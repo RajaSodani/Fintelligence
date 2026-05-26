@@ -74,6 +74,26 @@ export async function deleteAlert(req: Request, res: Response): Promise<void> {
   res.json({ success: true })
 }
 
+const updateAlertSchema = z.object({
+  targetPrice: z.number().positive().optional(),
+  condition:   z.enum(['ABOVE', 'BELOW']).optional(),
+}).refine((d) => d.targetPrice != null || d.condition != null, { message: 'At least one field required' })
+
+export async function updateAlert(req: Request, res: Response): Promise<void> {
+  const user = await resolveUser(req.userId, res)
+  if (!user) return
+
+  const { id } = req.params
+  const parsed = updateAlertSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
+
+  const alert = await prisma.priceAlert.findFirst({ where: { id, userId: user.id } })
+  if (!alert) { res.status(404).json({ error: 'Alert not found' }); return }
+
+  const updated = await prisma.priceAlert.update({ where: { id }, data: parsed.data })
+  res.json(updated)
+}
+
 export async function markAlertTriggered(req: Request, res: Response): Promise<void> {
   const user = await resolveUser(req.userId, res)
   if (!user) return

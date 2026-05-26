@@ -54,5 +54,20 @@ export function useNetWorth(): NetWorthResult {
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    const handler = () => {
+      setLoading(true)
+      coreApi.get('/api/v1/transactions/net-worth').then(({ data }) => {
+        setNetWorth(data.netWorth ?? 0)
+        setTotalAssets(data.totalAssets ?? 0)
+        setTotalLiabilities(data.totalLiabilities ?? 0)
+        setAccounts(data.accounts ?? [])
+        setTrend(data.trend ?? [])
+      }).catch(() => {}).finally(() => setLoading(false))
+    }
+    window.addEventListener('finmind:sync', handler)
+    return () => window.removeEventListener('finmind:sync', handler)
+  }, [])
+
   return { netWorth, totalAssets, totalLiabilities, accounts, trend, loading, error }
 }

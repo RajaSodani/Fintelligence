@@ -1,7 +1,8 @@
-import { Bell, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useUser } from '@/hooks/useUser'
-import { useMarketHours } from '@/hooks/useMarketHours';
+import { useMarketHours } from '@/hooks/useMarketHours'
+import { NotificationPanel } from './NotificationPanel'
 
 const pageMeta: Record<string, { title: string; sub: string }> = {
   '/dashboard': { title: 'Dashboard',         sub: 'Overview of your finances' },
@@ -19,20 +20,6 @@ export function TopBar() {
   const initials = user
     ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || '?'
     : '?'
-
-  const marketStatus = isMarketOpen
-    ? {
-        label: 'Live',
-        color: 'var(--green)',
-        border: 'rgba(0,232,122,0.15)',
-        background: 'rgba(0,232,122,0.05)',
-      }
-    : {
-        label: 'Closed',
-        color: 'var(--red)',
-        border: 'rgba(255,107,107,0.15)',
-        background: 'rgba(255,107,107,0.05)',
-      }
 
   return (
     <header
@@ -64,31 +51,27 @@ export function TopBar() {
           <kbd className="font-mono text-2xs bg-[var(--bg4)] border border-[var(--border2)] px-1.5 py-0.5 rounded">⌘K</kbd>
         </button>
 
-        {/* Live indicator */}
-        <div
-          className="flex items-center gap-2 px-3 py-2 rounded-xl border"
-          style={{
-            borderColor: marketStatus.border,
-            background: marketStatus.background,
-          }}
-        >
-          <span
-            className="pulse-dot w-2 h-2 rounded-full flex-shrink-0"
-            style={{ background: marketStatus.color }}
-          />
-          <span
-            className="font-mono text-2xs tracking-[0.1em] uppercase hidden sm:block"
-            style={{ color: marketStatus.color }}
+        {/* Live indicator — only during market hours */}
+        {isMarketOpen && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border"
+            style={{ borderColor: 'rgba(0,232,122,0.15)', background: 'rgba(0,232,122,0.05)' }}
           >
-            {marketStatus.label}
-          </span>
-        </div>
+            <span
+              className="pulse-dot w-2 h-2 rounded-full flex-shrink-0"
+              style={{ background: 'var(--green)' }}
+            />
+            <span
+              className="font-mono text-2xs tracking-[0.1em] uppercase hidden sm:block"
+              style={{ color: 'var(--green)' }}
+            >
+              Live
+            </span>
+          </div>
+        )}
 
         {/* Notification bell */}
-        <button className="relative w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text3)] hover:text-[var(--text)] hover:bg-[var(--bg3)] transition-all border border-[var(--border)]">
-          <Bell size={16} />
-          <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-[var(--green)]" />
-        </button>
+        <NotificationPanel />
 
         {/* Avatar */}
         <div

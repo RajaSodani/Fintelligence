@@ -8,6 +8,7 @@ export interface TransactionQueryParams {
   category?: string
   startDate?: string
   endDate?: string
+  name?: string
 }
 
 export interface StripeCheckoutBody {

@@ -83,6 +83,7 @@ export function SetuConnect({ onSuccess, className }: Props) {
     try {
       await coreApi.post('/api/v1/setu/sync')
       setStatus('synced')
+      window.dispatchEvent(new CustomEvent('finmind:sync'))
       onSuccess?.()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error

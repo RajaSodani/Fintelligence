@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import { Transaction } from '@/hooks/useTransactions'
 import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
@@ -14,14 +15,29 @@ export const CATEGORY_COLORS: Record<string, string> = {
   'Other':             'var(--text3)',
 }
 
+const ALL_CATEGORIES = ['Food & Dining', 'Shopping', 'Transport', 'Subscriptions', 'Utilities', 'Housing & Finance', 'Health', 'Income', 'Other']
+
 interface Props {
   tx: Transaction
   showYear?: boolean
+  onCategoryChange?: (txId: string, newCategory: string) => void
 }
 
-export function TransactionRow({ tx, showYear = false }: Props) {
+export function TransactionRow({ tx, showYear = false, onCategoryChange }: Props) {
   const isCredit = tx.amount < 0
   const displayAmount = Math.abs(tx.amount)
+  const [open, setOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (!dropdownRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
   return (
     <div className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--bg3)] transition-colors">
       <div
@@ -35,11 +51,43 @@ export function TransactionRow({ tx, showYear = false }: Props) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="font-dm text-[15px] font-medium text-[var(--text)] truncate">{tx.name}</p>
-        <p className="font-mono text-xs text-[var(--text3)]">
-          {tx.category ?? 'Other'} · {new Date(tx.date).toLocaleDateString('en-IN', {
-            day: 'numeric', month: 'short', ...(showYear ? { year: 'numeric' } : {}),
-          })}
-        </p>
+        <div className="flex items-center gap-1.5">
+          {onCategoryChange ? (
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setOpen((v) => !v)}
+                className="font-mono text-xs text-[var(--text3)] hover:text-[var(--green)] transition-colors"
+              >
+                {tx.category ?? 'Other'} ▾
+              </button>
+              {open && (
+                <div className="absolute left-0 top-full mt-1 z-10 bg-[var(--bg3)] border border-[var(--border2)] rounded-xl shadow-card py-1 w-44">
+                  {ALL_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      className="w-full text-left px-3 py-1.5 font-dm text-xs text-[var(--text2)] hover:bg-[var(--bg4)] transition-colors"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        onCategoryChange(tx.id, cat)
+                        setOpen(false)
+                      }}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <span className="font-mono text-xs text-[var(--text3)]">{tx.category ?? 'Other'}</span>
+          )}
+          <span className="font-mono text-xs text-[var(--text3)]">·</span>
+          <span className="font-mono text-xs text-[var(--text3)]">
+            {new Date(tx.date).toLocaleDateString('en-IN', {
+              day: 'numeric', month: 'short', ...(showYear ? { year: 'numeric' } : {}),
+            })}
+          </span>
+        </div>
       </div>
       <div className="text-right">
         <p className={cn('font-mono text-[15px] font-medium', isCredit ? 'text-[var(--green)]' : 'text-[var(--text)]')}>

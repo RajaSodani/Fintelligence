@@ -8,6 +8,7 @@ interface UseAlertsResult {
   error: string | null
   refetch: () => void
   createAlert: (ticker: string, targetPrice: number, condition: 'ABOVE' | 'BELOW') => Promise<void>
+  updateAlert: (id: string, targetPrice: number, condition: 'ABOVE' | 'BELOW') => Promise<void>
   deleteAlert: (id: string) => Promise<void>
 }
 
@@ -40,10 +41,19 @@ export function useAlerts(): UseAlertsResult {
     await fetch()
   }, [fetch])
 
+  const updateAlert = useCallback(async (
+    id: string,
+    targetPrice: number,
+    condition: 'ABOVE' | 'BELOW',
+  ) => {
+    await coreApi.patch(`/api/v1/alerts/${id}`, { targetPrice, condition })
+    await fetch()
+  }, [fetch])
+
   const deleteAlert = useCallback(async (id: string) => {
     await coreApi.delete(`/api/v1/alerts/${id}`)
     await fetch()
   }, [fetch])
 
-  return { alerts, loading, error, refetch: fetch, createAlert, deleteAlert }
+  return { alerts, loading, error, refetch: fetch, createAlert, updateAlert, deleteAlert }
 }

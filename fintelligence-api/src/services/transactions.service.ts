@@ -25,11 +25,13 @@ export function buildTransactionWhere(
     category?: string
     startDate?: string
     endDate?: string
+    name?: string
   },
 ) {
   return {
     userId,
     ...(params.category && { category: params.category }),
+    ...(params.name && { name: { contains: params.name, mode: 'insensitive' as const } }),
     ...(params.startDate || params.endDate
       ? {
           date: {

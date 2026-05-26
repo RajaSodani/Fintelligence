@@ -57,5 +57,10 @@ export function useTransactions(options: UseTransactionsOptions = {}): Transacti
 
   useEffect(() => { fetch() }, [fetch])
 
+  useEffect(() => {
+    window.addEventListener('finmind:sync', fetch as EventListener)
+    return () => window.removeEventListener('finmind:sync', fetch as EventListener)
+  }, [fetch])
+
   return { transactions, total, loading, error, refetch: fetch }
 }

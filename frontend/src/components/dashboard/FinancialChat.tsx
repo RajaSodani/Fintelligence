@@ -10,20 +10,38 @@ interface Props {
 export function FinancialChat({ transactionsContext }: Props) {
   const [input, setInput] = useState('')
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { messages, sendMessage, isTyping } = useChat({ transactionsContext })
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
+  const autoResize = () => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`
+  }
+
   const handleSend = () => {
     if (!input.trim()) return
     sendMessage(input.trim())
     setInput('')
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
   }
 
   return (
-    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card flex flex-col" style={{ minHeight: 480 }}>
+    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card flex flex-col" style={{ minHeight: 480, maxHeight: 620 }}>
       {/* Header */}
       <div className="px-5 py-4 border-b border-[var(--border)] flex items-center gap-3 flex-shrink-0">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[rgba(0,232,122,0.2)] to-[rgba(77,159,255,0.2)] flex items-center justify-center">
@@ -56,7 +74,7 @@ export function FinancialChat({ transactionsContext }: Props) {
               </div>
             )}
             <div className={cn(
-              'max-w-[82%] px-4 py-3 rounded-2xl font-dm text-[14px] leading-relaxed',
+              'max-w-[82%] px-4 py-3 rounded-2xl font-dm text-[14px] leading-relaxed whitespace-pre-wrap',
               msg.role === 'user'
                 ? 'bg-[rgba(0,232,122,0.1)] border border-[rgba(0,232,122,0.18)] text-[var(--text)] rounded-tr-sm'
                 : 'bg-[var(--bg3)] border border-[var(--border2)] text-[var(--text2)] rounded-tl-sm',
@@ -84,24 +102,27 @@ export function FinancialChat({ transactionsContext }: Props) {
 
       {/* Input */}
       <div className="p-4 border-t border-[var(--border)] flex-shrink-0">
-        <div className="flex gap-2 items-center bg-[var(--bg3)] border border-[var(--border2)] rounded-xl px-4 py-2.5 focus-within:border-[rgba(0,232,122,0.35)] transition-colors">
-          <input
-            type="text"
+        <div className="flex gap-2 items-end bg-[var(--bg3)] border border-[var(--border2)] rounded-xl px-4 py-2.5 focus-within:border-[rgba(0,232,122,0.35)] transition-colors">
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="Ask anything about your money…"
-            className="flex-1 bg-transparent text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] font-dm outline-none"
+            onChange={(e) => { setInput(e.target.value); autoResize() }}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything about your money… (Shift+Enter for new line)"
+            className="flex-1 bg-transparent text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] font-dm outline-none resize-none overflow-hidden leading-relaxed"
+            style={{ minHeight: 24 }}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-50"
+            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-50 mb-0.5"
             style={{ background: input.trim() ? 'var(--green)' : 'var(--bg4)' }}
           >
             <Send size={14} color={input.trim() ? '#07090f' : 'var(--text3)'} />
           </button>
         </div>
+        <p className="font-mono text-[10px] text-[var(--text3)] mt-1.5 px-1">Shift+Enter for new line · Enter to send</p>
       </div>
     </div>
   )

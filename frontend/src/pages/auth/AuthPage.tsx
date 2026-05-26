@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useSignIn, useSignUp } from '@clerk/clerk-react'
-import { ArrowRight, Mail, Sparkles, ShieldCheck, Zap, BarChart3, ArrowLeft, AlertCircle } from 'lucide-react'
+import { ArrowRight, Mail, Smartphone, Sparkles, ShieldCheck, Zap, BarChart3, ArrowLeft, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 
 type Mode = 'signin' | 'signup'
 type Step = 'email' | 'otp' | 'name'
+type Identifier = 'email' | 'phone'
 
 const features = [
   { icon: Sparkles,   color: 'var(--green)',  text: 'AI research on any stock in 30 seconds' },
@@ -91,31 +92,45 @@ function AuthForm({ mode, onToggleMode }: AuthFormProps) {
   const { isLoaded: siLoaded, signIn, setActive: siSetActive }   = useSignIn()
   const { isLoaded: suLoaded, signUp, setActive: suSetActive }   = useSignUp()
 
-  const [step, setStep]         = useState<Step>(mode === 'signup' ? 'email' : 'email')
-  const [email, setEmail]       = useState('')
+  const [step, setStep]           = useState<Step>('email')
+  const [identifier, setIdentifier] = useState<Identifier>('phone')
+  const [email, setEmail]         = useState('')
+  const [phone, setPhone]         = useState('')
   const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName]  = useState('')
-  const [otp, setOtp]           = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState('')
+  const [lastName, setLastName]   = useState('')
+  const [otp, setOtp]             = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState('')
 
   const isReady = mode === 'signin' ? siLoaded : suLoaded
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email.trim() || !isReady) return
+    if (!isReady) return
     setError('')
     setLoading(true)
     try {
-      if (mode === 'signin') {
-        await signIn!.create({ strategy: 'email_code', identifier: email.trim() })
-        setStep('otp')
+      if (identifier === 'phone') {
+        const fullPhone = `+91${phone.replace(/\D/g, '')}`
+        if (phone.replace(/\D/g, '').length !== 10) { setError('Enter a valid 10-digit mobile number'); setLoading(false); return }
+        if (mode === 'signin') {
+          await signIn!.create({ strategy: 'phone_code', identifier: fullPhone })
+        } else {
+          if (step === 'email') { setStep('name'); setLoading(false); return }
+          await signUp!.create({ phoneNumber: fullPhone, firstName: firstName.trim(), lastName: lastName.trim() })
+          await signUp!.preparePhoneNumberVerification({ strategy: 'phone_code' })
+        }
       } else {
-        if (step === 'email') { setStep('name'); setLoading(false); return }
-        await signUp!.create({ emailAddress: email.trim(), firstName: firstName.trim(), lastName: lastName.trim() })
-        await signUp!.prepareEmailAddressVerification({ strategy: 'email_code' })
-        setStep('otp')
+        if (!email.trim()) { setError('Enter your email address'); setLoading(false); return }
+        if (mode === 'signin') {
+          await signIn!.create({ strategy: 'email_code', identifier: email.trim() })
+        } else {
+          if (step === 'email') { setStep('name'); setLoading(false); return }
+          await signUp!.create({ emailAddress: email.trim(), firstName: firstName.trim(), lastName: lastName.trim() })
+          await signUp!.prepareEmailAddressVerification({ strategy: 'email_code' })
+        }
       }
+      setStep('otp')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
       setError(msg)
@@ -131,13 +146,16 @@ function AuthForm({ mode, onToggleMode }: AuthFormProps) {
     setLoading(true)
     try {
       if (mode === 'signin') {
-        const result = await signIn!.attemptFirstFactor({ strategy: 'email_code', code: otp })
+        const strategy = identifier === 'phone' ? 'phone_code' : 'email_code'
+        const result = await signIn!.attemptFirstFactor({ strategy, code: otp })
         if (result.status === 'complete') {
           await siSetActive!({ session: result.createdSessionId })
           navigate('/dashboard')
         }
       } else {
-        const result = await signUp!.attemptEmailAddressVerification({ code: otp })
+        const result = identifier === 'phone'
+          ? await signUp!.attemptPhoneNumberVerification({ code: otp })
+          : await signUp!.attemptEmailAddressVerification({ code: otp })
         if (result.status === 'complete') {
           await suSetActive!({ session: result.createdSessionId })
           navigate('/dashboard')
@@ -214,6 +232,9 @@ function AuthForm({ mode, onToggleMode }: AuthFormProps) {
       {step === 'otp' ? (
         /* OTP step */
         <form onSubmit={handleOtpSubmit} className="flex flex-col gap-6">
+          <p className="font-dm text-sm text-[var(--text2)] text-center -mt-2">
+            We sent a 6-digit code to {identifier === 'phone' ? `+91 ${phone}` : email}
+          </p>
           <OtpInput value={otp} onChange={setOtp} />
           <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full" iconRight={ArrowRight}>
             Verify Code
@@ -229,8 +250,8 @@ function AuthForm({ mode, onToggleMode }: AuthFormProps) {
           </div>
         </form>
       ) : (
-        /* Email / name step */
-        <form onSubmit={handleEmailSubmit} className="flex flex-col gap-4">
+        /* Identifier / name step */
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* Google */}
           <button
             type="button"
@@ -245,6 +266,26 @@ function AuthForm({ mode, onToggleMode }: AuthFormProps) {
             <div className="flex-1 h-px bg-[var(--border2)]" />
             <span className="font-mono text-xs text-[var(--text3)]">or</span>
             <div className="flex-1 h-px bg-[var(--border2)]" />
+          </div>
+
+          {/* Phone / Email toggle */}
+          <div className="flex p-1 rounded-xl bg-[var(--bg3)] border border-[var(--border)]">
+            {(['phone', 'email'] as Identifier[]).map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setIdentifier(id)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg font-syne font-semibold text-sm transition-all duration-200',
+                  identifier === id
+                    ? 'bg-[var(--bg5)] text-[var(--text)] shadow-sm'
+                    : 'text-[var(--text3)] hover:text-[var(--text2)]'
+                )}
+              >
+                {id === 'phone' ? <Smartphone size={13} /> : <Mail size={13} />}
+                {id === 'phone' ? 'Mobile' : 'Email'}
+              </button>
+            ))}
           </div>
 
           {/* Name fields (sign-up, step 2) */}
@@ -275,26 +316,50 @@ function AuthForm({ mode, onToggleMode }: AuthFormProps) {
             </div>
           )}
 
-          {/* Email */}
-          <div className="flex flex-col gap-1.5">
-            <label className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest">Email Address</label>
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--bg3)] border border-[var(--border2)] focus-within:border-[rgba(0,232,122,0.35)] transition-colors">
-              <Mail size={16} className="text-[var(--text3)] flex-shrink-0" />
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                autoFocus={!(!isSignIn && step === 'name')}
-                className="flex-1 font-dm text-[15px] bg-transparent text-[var(--text)] placeholder:text-[var(--text3)]"
-              />
+          {/* Phone input */}
+          {identifier === 'phone' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest">Mobile Number</label>
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--bg3)] border border-[var(--border2)] focus-within:border-[rgba(0,232,122,0.35)] transition-colors">
+                <span className="font-mono text-[15px] text-[var(--text2)] flex-shrink-0">+91</span>
+                <div className="w-px h-4 bg-[var(--border2)] flex-shrink-0" />
+                <Smartphone size={15} className="text-[var(--text3)] flex-shrink-0" />
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={phone}
+                  onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="98765 43210"
+                  autoFocus
+                  className="flex-1 font-dm text-[15px] bg-transparent text-[var(--text)] placeholder:text-[var(--text3)]"
+                />
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Email input */}
+          {identifier === 'email' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest">Email Address</label>
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--bg3)] border border-[var(--border2)] focus-within:border-[rgba(0,232,122,0.35)] transition-colors">
+                <Mail size={16} className="text-[var(--text3)] flex-shrink-0" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  autoFocus
+                  className="flex-1 font-dm text-[15px] bg-transparent text-[var(--text)] placeholder:text-[var(--text3)]"
+                />
+              </div>
+            </div>
+          )}
 
           <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full" iconRight={ArrowRight}>
             {isSignIn
-              ? 'Continue with Email'
+              ? `Continue with ${identifier === 'phone' ? 'Mobile' : 'Email'}`
               : step === 'email' ? 'Continue' : 'Send Verification Code'}
           </Button>
         </form>
