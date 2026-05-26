@@ -77,6 +77,18 @@ export async function getAccounts(req: Request, res: Response): Promise<void> {
   res.json(accounts)
 }
 
+export async function deleteAccount(req: Request, res: Response): Promise<void> {
+  const { id } = req.params
+  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  const account = await prisma.account.findFirst({ where: { id, userId: user.id } })
+  if (!account) { res.status(404).json({ error: 'Account not found' }); return }
+
+  await prisma.account.delete({ where: { id } })
+  res.json({ success: true })
+}
+
 // Webhook — no auth, called by Setu
 export async function webhook(req: Request, res: Response): Promise<void> {
   const payload = req.body

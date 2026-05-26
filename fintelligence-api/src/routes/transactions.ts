@@ -5,6 +5,7 @@ import {
   getTransactionSummary,
   getCashflow,
   getNetWorth,
+  deleteTransaction,
   updateTransactionCategory,
   createManualTransaction,
   createManualAccount,
@@ -18,6 +19,7 @@ router.get('/cashflow', requireAuth, getCashflow)
 router.get('/net-worth', requireAuth, getNetWorth)
 router.post('/manual', requireAuth, createManualTransaction)
 router.post('/manual-account', requireAuth, createManualAccount)
+router.delete('/:id', requireAuth, deleteTransaction)
 router.patch('/:id/category', requireAuth, updateTransactionCategory)
 
 export default router

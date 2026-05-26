@@ -160,6 +160,18 @@ export async function getCashflow(req: Request, res: Response): Promise<void> {
   res.json(cashflow)
 }
 
+export async function deleteTransaction(req: Request, res: Response): Promise<void> {
+  const { id } = req.params
+  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  const tx = await prisma.transaction.findFirst({ where: { id, userId: user.id } })
+  if (!tx) { res.status(404).json({ error: 'Transaction not found' }); return }
+
+  await prisma.transaction.delete({ where: { id } })
+  res.json({ success: true })
+}
+
 export async function updateTransactionCategory(req: Request, res: Response): Promise<void> {
   const { id } = req.params
   const { category } = req.body as { category: string }

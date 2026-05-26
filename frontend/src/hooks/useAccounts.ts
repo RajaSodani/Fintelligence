@@ -32,5 +32,10 @@ export function useAccounts() {
 
   useEffect(() => { fetch() }, [fetch])
 
-  return { accounts, loading, error, refetch: fetch }
+  const deleteAccount = useCallback(async (id: string) => {
+    await coreApi.delete(`/api/v1/setu/accounts/${id}`)
+    await fetch()
+  }, [fetch])
+
+  return { accounts, loading, error, refetch: fetch, deleteAccount }
 }
