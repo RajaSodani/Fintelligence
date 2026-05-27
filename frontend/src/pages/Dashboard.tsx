@@ -63,7 +63,7 @@ export function Dashboard() {
         <SpendingBreakdown categories={spendingCategories} loading={summaryLoading} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4 items-start">
         <RecentTransactions transactions={transactions} loading={txLoading} />
         <FinancialChat transactionsContext={transactionsContext} />
       </div>

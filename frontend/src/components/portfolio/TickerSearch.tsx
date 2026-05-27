@@ -11,11 +11,12 @@ interface SearchResult {
 interface TickerSearchProps {
   value: string
   onSelect: (ticker: string, companyName: string) => void
+  onChange?: (value: string) => void
   placeholder?: string
   className?: string
 }
 
-export function TickerSearch({ value, onSelect, placeholder = 'Search ticker…', className = '' }: TickerSearchProps) {
+export function TickerSearch({ value, onSelect, onChange, placeholder = 'Search ticker…', className = '' }: TickerSearchProps) {
   const [query, setQuery] = useState(value)
   const [results, setResults] = useState<SearchResult[]>([])
   const [open, setOpen] = useState(false)
@@ -63,7 +64,7 @@ export function TickerSearch({ value, onSelect, placeholder = 'Search ticker…'
       <div className="relative">
         <input
           value={query}
-          onChange={(e) => { setQuery(e.target.value.toUpperCase()) }}
+          onChange={(e) => { const v = e.target.value.toUpperCase(); setQuery(v); onChange?.(v) }}
           placeholder={placeholder}
           autoComplete="off"
           className={`w-full bg-[var(--bg3)] border border-[var(--border)] rounded-xl px-4 py-2.5 font-dm text-[15px] text-[var(--text)] placeholder:text-[var(--text3)] focus:border-[rgba(0,232,122,0.35)] outline-none transition-colors ${className}`}

@@ -383,20 +383,30 @@ function WatchlistPanel({
   items: WatchlistItem[]
   onRowClick: (ticker: string) => void
   onRemove: (id: string) => void
-  onAdd: (ticker: string) => void
+  onAdd: (ticker: string) => Promise<void>
 }) {
-  const [selectedTicker, setSelectedTicker] = useState('')
+  const [tickerInput, setTickerInput] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [addErr, setAddErr] = useState('')
 
-  const handleAdd = () => {
-    const t = selectedTicker.trim()
+  const handleAdd = async () => {
+    const t = tickerInput.trim().toUpperCase()
     if (!t) return
-    onAdd(t)
-    setSelectedTicker('')
+    setAdding(true)
+    setAddErr('')
+    try {
+      await onAdd(t)
+      setTickerInput('')
+    } catch {
+      setAddErr('Failed to add ticker')
+    } finally {
+      setAdding(false)
+    }
   }
 
   return (
-    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
-      <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl shadow-card">
+      <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between rounded-t-2xl overflow-hidden">
         <p className="font-syne font-bold text-[15px] text-[var(--text)]">Watchlist</p>
       </div>
       <div className="divide-y divide-[var(--border)]">
@@ -429,15 +439,19 @@ function WatchlistPanel({
           <p className="font-mono text-xs text-[var(--text3)] px-5 py-4">No tickers added yet.</p>
         )}
       </div>
-      <div className="px-5 py-3 border-t border-[var(--border)] flex gap-2">
-        <div className="flex-1">
-          <TickerSearch
-            value={selectedTicker}
-            onSelect={(t) => setSelectedTicker(t)}
-            placeholder="Search ticker to watch…"
-          />
+      <div className="px-5 py-3 border-t border-[var(--border)] flex flex-col gap-2 rounded-b-2xl overflow-visible">
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <TickerSearch
+              value={tickerInput}
+              onSelect={(t) => setTickerInput(t)}
+              onChange={(v) => { setTickerInput(v); setAddErr('') }}
+              placeholder="Search ticker to watch…"
+            />
+          </div>
+          <Button variant="ghost" size="sm" icon={Plus} loading={adding} onClick={handleAdd}>Add</Button>
         </div>
-        <Button variant="ghost" size="sm" icon={Plus} onClick={handleAdd}>Add</Button>
+        {addErr && <p className="font-mono text-xs text-[var(--red)]">{addErr}</p>}
       </div>
     </div>
   )
@@ -484,7 +498,15 @@ function AlertsPanel({ alerts, onDelete, onUpdate }: {
           const up = alert.condition === 'ABOVE'
           const isEditing = editingId === alert.id
           return (
-            <div key={alert.id} className="px-5 py-4 hover:bg-[var(--bg3)] transition-colors group">
+            <div
+              key={alert.id}
+              className={cn(
+                'px-5 py-4 transition-colors group',
+                alert.isTriggered
+                  ? 'bg-[rgba(0,232,122,0.05)] hover:bg-[rgba(0,232,122,0.09)] border-l-2 border-[var(--green)]'
+                  : 'hover:bg-[var(--bg3)]'
+              )}
+            >
               {isEditing ? (
                 <div className="flex items-center gap-2">
                   <select
@@ -521,9 +543,14 @@ function AlertsPanel({ alerts, onDelete, onUpdate }: {
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-mono text-[14px] font-medium text-[var(--text)]">{alert.ticker}</span>
+                        <span className={cn('font-mono text-[14px] font-medium', alert.isTriggered ? 'text-[var(--green)]' : 'text-[var(--text)]')}>
+                          {alert.ticker}
+                        </span>
                         {alert.isTriggered ? (
-                          <Badge variant="green" dot>Triggered</Badge>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[rgba(0,232,122,0.15)] border border-[rgba(0,232,122,0.3)]">
+                            <Check size={10} className="text-[var(--green)]" />
+                            <span className="font-mono text-2xs font-semibold text-[var(--green)] uppercase tracking-wide">Triggered</span>
+                          </span>
                         ) : (
                           <Badge variant={up ? 'blue' : 'amber'} dot>{alert.condition}</Badge>
                         )}
@@ -652,7 +679,7 @@ export function Market() {
       </div>
 
       {/* Main grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-4 items-start">
         {/* Holdings table */}
         <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl overflow-hidden shadow-card">
           <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
@@ -690,7 +717,7 @@ export function Market() {
               items={watchlist.items}
               onRowClick={handleTickerClick}
               onRemove={(id) => watchlist.removeTicker(id)}
-              onAdd={(ticker) => watchlist.addTicker(ticker)}
+              onAdd={watchlist.addTicker}
             />
           )}
 

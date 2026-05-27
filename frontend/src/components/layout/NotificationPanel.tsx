@@ -34,7 +34,7 @@ export function NotificationPanel() {
   useEffect(() => {
     const handler = () => {
       const id = `sync-${Date.now()}`
-      setSyncNotifs((prev) => [{ id, type: 'sync', text: 'Bank data synced successfully', ts: Date.now() }, ...prev].slice(0, 5))
+      setSyncNotifs((prev) => [{ id, type: 'sync' as const, text: 'Bank data synced successfully', ts: Date.now() }, ...prev].slice(0, 5))
     }
     window.addEventListener('finmind:sync', handler)
     return () => window.removeEventListener('finmind:sync', handler)

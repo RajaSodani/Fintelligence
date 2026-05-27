@@ -1,8 +1,10 @@
+import { useState, useEffect } from 'react'
 import { Search } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useUser } from '@/hooks/useUser'
 import { useMarketHours } from '@/hooks/useMarketHours'
 import { NotificationPanel } from './NotificationPanel'
+import { SearchModal } from './SearchModal'
 
 const pageMeta: Record<string, { title: string; sub: string }> = {
   '/dashboard': { title: 'Dashboard',         sub: 'Overview of your finances' },
@@ -16,40 +18,56 @@ export function TopBar() {
   const { user } = useUser()
   const { isMarketOpen } = useMarketHours()
   const meta = pageMeta[location.pathname] ?? { title: 'Fintelligence', sub: '' }
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const initials = user
     ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || '?'
     : '?'
 
-  return (
-    <header
-      className="fixed top-0 right-0 z-30 flex items-center justify-between px-6"
-      style={{
-        left: 240,
-        height: 64,
-        background: 'rgba(7,9,15,0.85)',
-        backdropFilter: 'blur(16px)',
-        borderBottom: '1px solid var(--border2)',
-      }}
-    >
-      {/* Page title */}
-      <div>
-        <h1 className="font-syne font-bold text-[17px] text-[var(--text)] leading-tight tracking-tight">
-          {meta.title}
-        </h1>
-        <p className="font-mono text-2xs text-[var(--text3)] tracking-wider">{meta.sub}</p>
-      </div>
+  // ⌘K / Ctrl+K shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
-      {/* Right controls */}
-      <div className="flex items-center gap-2">
-        {/* Search */}
-        <button
-          className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl text-[var(--text3)] hover:text-[var(--text2)] hover:bg-[var(--bg3)] transition-all border border-[var(--border)]"
-        >
-          <Search size={14} />
-          <span className="font-mono text-xs tracking-wider">Search…</span>
-          <kbd className="font-mono text-2xs bg-[var(--bg4)] border border-[var(--border2)] px-1.5 py-0.5 rounded">⌘K</kbd>
-        </button>
+  return (
+    <>
+      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+      <header
+        className="fixed top-0 right-0 z-30 flex items-center justify-between px-6"
+        style={{
+          left: 240,
+          height: 64,
+          background: 'rgba(7,9,15,0.85)',
+          backdropFilter: 'blur(16px)',
+          borderBottom: '1px solid var(--border2)',
+        }}
+      >
+        {/* Page title */}
+        <div>
+          <h1 className="font-syne font-bold text-[17px] text-[var(--text)] leading-tight tracking-tight">
+            {meta.title}
+          </h1>
+          <p className="font-mono text-2xs text-[var(--text3)] tracking-wider">{meta.sub}</p>
+        </div>
+
+        {/* Right controls */}
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl text-[var(--text3)] hover:text-[var(--text2)] hover:bg-[var(--bg3)] transition-all border border-[var(--border)]"
+          >
+            <Search size={14} />
+            <span className="font-mono text-xs tracking-wider">Search…</span>
+            <kbd className="font-mono text-2xs bg-[var(--bg4)] border border-[var(--border2)] px-1.5 py-0.5 rounded">⌘K</kbd>
+          </button>
 
         {/* Live indicator — only during market hours */}
         {isMarketOpen && (
@@ -82,5 +100,6 @@ export function TopBar() {
         </div>
       </div>
     </header>
+    </>
   )
 }

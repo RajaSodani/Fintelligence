@@ -109,6 +109,13 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
   }
 
   const now = new Date()
+
+  // Use stored daily snapshots for trend when available
+  const snapshots = await prisma.balanceSnapshot.findMany({
+    where: { accountId: { in: accounts.map((a) => a.id) } },
+    orderBy: { takenAt: 'asc' },
+  })
+
   const allTx = await prisma.transaction.findMany({ where: { userId: user.id, pending: false } })
 
   const monthlyNet: number[] = []
@@ -119,15 +126,21 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
     const txs = allTx.filter((t) => t.date >= start && t.date <= end)
     const income = txs.filter((t) => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0)
     const expenses = txs.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)
-    monthlyNet.push(income - expenses)
+    // Only count income if there are actually income transactions — avoid phantom negative savings
+    monthlyNet.push(income > 0 ? income - expenses : 0)
   }
 
   const trendPoints: Array<{ month: string; value: number }> = []
   let running = netWorth
   for (let i = 0; i <= 5; i++) {
     const d = subMonths(now, i)
-    trendPoints.unshift({ month: format(d, 'MMM'), value: Math.round(running) })
-    running -= monthlyNet[5 - i] ?? 0
+    // Check if we have a real snapshot near this month
+    const monthStart = startOfMonth(d)
+    const monthEnd = endOfMonth(d)
+    const snap = snapshots.find((s) => s.takenAt >= monthStart && s.takenAt <= monthEnd)
+    const value = snap ? snap.netWorth : Math.max(0, Math.round(running))
+    trendPoints.unshift({ month: format(d, 'MMM'), value })
+    if (!snap) running -= monthlyNet[5 - i] ?? 0
   }
 
   res.json({

@@ -1,4 +1,4 @@
-import { Building2, Crown, LogOut, Shield, Bell, Globe, ChevronRight, Check, AlertTriangle, X } from 'lucide-react'
+import { Building2, Crown, LogOut, Shield, Bell, Globe, Check, AlertTriangle, X, Trash2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useClerk } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/Button'
@@ -45,12 +45,14 @@ function Section({ title, icon: Icon, children }: { title: string; icon: LucideI
 
 export function Settings() {
   const { user } = useUser()
-  const { signOut } = useClerk()
-  const { accounts, loading: accountsLoading, refetch: refetchAccounts } = useAccounts()
+  const { signOut, openUserProfile } = useClerk()
+  const { accounts, loading: accountsLoading, refetch: refetchAccounts, deleteAccount } = useAccounts()
   const [notifications, setNotifications] = useState({ emailAlerts: true, weeklyReport: false })
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [connectBankToast, setConnectBankToast] = useState(false)
+  const [confirmDeleteAccountId, setConfirmDeleteAccountId] = useState<string | null>(null)
+  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
 
   const initials = user
     ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || '?'
@@ -58,6 +60,16 @@ export function Settings() {
 
   const toggle = (key: keyof typeof notifications) =>
     setNotifications(n => ({ ...n, [key]: !n[key] }))
+
+  const handleDeleteAccount = async (id: string) => {
+    setDeletingAccountId(id)
+    try {
+      await deleteAccount(id)
+      setConfirmDeleteAccountId(null)
+    } finally {
+      setDeletingAccountId(null)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4 max-w-3xl">
@@ -77,7 +89,7 @@ export function Settings() {
             <p className="font-mono text-sm text-[var(--text2)] mt-0.5">{user?.email ?? '—'}</p>
             <Badge variant="green" dot className="mt-2">Active</Badge>
           </div>
-          <Button variant="ghost" size="sm" className="ml-auto">Edit Profile</Button>
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => openUserProfile()}>Edit Profile</Button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -110,10 +122,12 @@ export function Settings() {
             accounts.map((acc) => {
               const label = [acc.fipId, acc.subType ?? acc.type].filter(Boolean).join(' · ')
               const maskedNum = acc.maskedAccNumber ? `····${acc.maskedAccNumber.slice(-4)}` : ''
+              const isConfirming = confirmDeleteAccountId === acc.id
+              const isDeleting = deletingAccountId === acc.id
               return (
                 <div
                   key={acc.id}
-                  className="flex items-center gap-4 p-4 rounded-xl bg-[var(--bg3)] border border-[var(--border)]"
+                  className="flex items-center gap-4 p-4 rounded-xl bg-[var(--bg3)] border border-[var(--border)] group"
                 >
                   <div className="w-10 h-10 rounded-xl bg-[var(--bg4)] flex items-center justify-center flex-shrink-0">
                     <Building2 size={16} className="text-[var(--text2)]" />
@@ -130,7 +144,31 @@ export function Settings() {
                     </p>
                     <Badge variant="green" dot className="mt-1">Connected</Badge>
                   </div>
-                  <ChevronRight size={16} className="text-[var(--text3)]" />
+                  {isConfirming ? (
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className="font-mono text-xs text-[var(--text3)]">Remove?</span>
+                      <button
+                        onClick={() => handleDeleteAccount(acc.id)}
+                        disabled={isDeleting}
+                        className="font-mono text-xs text-[var(--red)] hover:underline disabled:opacity-50"
+                      >
+                        {isDeleting ? '…' : 'Yes'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteAccountId(null)}
+                        className="font-mono text-xs text-[var(--text3)] hover:text-[var(--text)]"
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteAccountId(acc.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text3)] hover:text-[var(--red)] flex-shrink-0"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </div>
               )
             })

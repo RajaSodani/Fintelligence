@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Search } from 'lucide-react'
+import { X, Search, RefreshCw } from 'lucide-react'
 import { coreApi } from '@/lib/axios'
 import { Transaction } from '@/hooks/useTransactions'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -68,6 +68,18 @@ export function TransactionModal({ onClose }: Props) {
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
+  // Re-load when bank sync fires while modal is open
+  useEffect(() => {
+    const handler = () => {
+      setItems([])
+      setTotal(null)
+      setOffset(0)
+      loadPage(0, debouncedSearch)
+    }
+    window.addEventListener('finmind:sync', handler)
+    return () => window.removeEventListener('finmind:sync', handler)
+  }, [debouncedSearch, loadPage])
+
   const handleCategoryChange = async (txId: string, category: string) => {
     try {
       await coreApi.patch(`/api/v1/transactions/${txId}/category`, { category })
@@ -75,6 +87,19 @@ export function TransactionModal({ onClose }: Props) {
     } catch {
       // silently fail
     }
+  }
+
+  const handleDelete = async (txId: string) => {
+    await coreApi.delete(`/api/v1/transactions/${txId}`)
+    setItems((prev) => prev.filter((tx) => tx.id !== txId))
+    setTotal((prev) => (prev !== null ? prev - 1 : null))
+  }
+
+  const handleRefresh = () => {
+    setItems([])
+    setTotal(null)
+    setOffset(0)
+    loadPage(0, debouncedSearch)
   }
 
   return (
@@ -94,12 +119,21 @@ export function TransactionModal({ onClose }: Props) {
               <p className="font-mono text-2xs text-[var(--text3)] mt-0.5">{total} total</p>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text3)] hover:text-[var(--text)] hover:bg-[var(--bg3)] transition-colors"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleRefresh}
+              title="Refresh"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text3)] hover:text-[var(--text)] hover:bg-[var(--bg3)] transition-colors"
+            >
+              <RefreshCw size={14} />
+            </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text3)] hover:text-[var(--text)] hover:bg-[var(--bg3)] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Search bar */}
@@ -128,6 +162,7 @@ export function TransactionModal({ onClose }: Props) {
               tx={tx}
               showYear
               onCategoryChange={handleCategoryChange}
+              onDelete={handleDelete}
             />
           ))}
 

@@ -38,7 +38,7 @@ export function NetWorthChart({ trendData, totalNetWorth, loading }: Props) {
   const pct   = first !== 0 ? ((delta / Math.abs(first)) * 100).toFixed(1) : null
 
   return (
-    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card">
+    <div className="bg-[var(--bg2)] border border-[var(--border2)] rounded-2xl p-5 shadow-card flex flex-col h-full">
       <div className="flex items-start justify-between mb-5">
         <div>
           <p className="font-mono text-2xs text-[var(--text3)] uppercase tracking-widest mb-1">Net Worth Trend</p>
@@ -62,7 +62,7 @@ export function NetWorthChart({ trendData, totalNetWorth, loading }: Props) {
         )}
       </div>
 
-      <div style={{ height: 140 }}>
+      <div className="flex-1" style={{ minHeight: 140 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
             <defs>
