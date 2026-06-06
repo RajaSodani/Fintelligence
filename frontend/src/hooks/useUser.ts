@@ -1,19 +1,25 @@
-import { useUser as useClerkUser } from '@clerk/clerk-react'
+import { useAuthContext } from '@/context/AuthContext'
 import type { User } from '@/types'
 
-export function useUser(): { user: User | null; isLoaded: boolean } {
-  const { user: clerkUser, isLoaded } = useClerkUser()
+// ── Clerk version (preserved for future switch-back) ──────────────────────
+// import { useUser as useClerkUser } from '@clerk/clerk-react'
+// const { user: clerkUser, isLoaded } = useClerkUser()
+// return { id: clerkUser.id, firstName: clerkUser.firstName ?? '', ... }
+// ──────────────────────────────────────────────────────────────────────────
 
-  if (!isLoaded || !clerkUser) {
+export function useUser(): { user: User | null; isLoaded: boolean } {
+  const { user: authUser, isLoaded } = useAuthContext()
+
+  if (!isLoaded || !authUser) {
     return { user: null, isLoaded }
   }
 
   const user: User = {
-    id: clerkUser.id,
-    firstName: clerkUser.firstName ?? '',
-    lastName: clerkUser.lastName ?? '',
-    email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
-    imageUrl: clerkUser.imageUrl,
+    id: authUser.id,
+    firstName: authUser.firstName,
+    lastName: authUser.lastName,
+    email: authUser.email,
+    imageUrl: authUser.imageUrl,
   }
 
   return { user, isLoaded }

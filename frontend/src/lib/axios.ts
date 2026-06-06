@@ -1,5 +1,11 @@
 import axios from 'axios'
 
+const TOKEN_KEY = 'fintelligence_token'
+
+// ── Clerk version (preserved for future switch-back) ──────────────────────
+// const token = await window.Clerk?.session?.getToken()
+// ──────────────────────────────────────────────────────────────────────────
+
 function createInstance(baseURL: string, serviceName: string) {
   const instance = axios.create({
     baseURL,
@@ -7,13 +13,9 @@ function createInstance(baseURL: string, serviceName: string) {
     headers: { 'Content-Type': 'application/json' },
   })
 
-  instance.interceptors.request.use(async (config) => {
-    try {
-      const token = await window.Clerk?.session?.getToken()
-      if (token) config.headers.Authorization = `Bearer ${token}`
-    } catch {
-      // no-op if Clerk isn't ready
-    }
+  instance.interceptors.request.use((config) => {
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (token) config.headers.Authorization = `Bearer ${token}`
     return config
   })
 
@@ -21,7 +23,8 @@ function createInstance(baseURL: string, serviceName: string) {
     (response) => response,
     (error) => {
       if (error.response?.status === 401) {
-        window.location.href = '/sign-in'
+        localStorage.removeItem(TOKEN_KEY)
+        window.location.href = '/auth/sign-in'
       }
       if (error.response?.status >= 500) {
         console.error(`[${serviceName}] Server error:`, error.response?.data ?? error.message)

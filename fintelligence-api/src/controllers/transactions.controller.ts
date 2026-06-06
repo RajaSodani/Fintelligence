@@ -10,7 +10,7 @@ export async function getTransactions(req: Request, res: Response): Promise<void
   const { limit = '50', offset = '0', category, startDate, endDate, name } =
     req.query as TransactionQueryParams
 
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const where = buildTransactionWhere(user.id, { category, startDate, endDate, name })
@@ -29,7 +29,7 @@ export async function getTransactions(req: Request, res: Response): Promise<void
 }
 
 export async function getTransactionSummary(req: Request, res: Response): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const now = new Date()
@@ -79,7 +79,7 @@ export async function getTransactionSummary(req: Request, res: Response): Promis
 }
 
 export async function getNetWorth(req: Request, res: Response): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const accounts = await prisma.account.findMany({ where: { userId: user.id } })
@@ -153,7 +153,7 @@ export async function getNetWorth(req: Request, res: Response): Promise<void> {
 }
 
 export async function getCashflow(req: Request, res: Response): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const now = new Date()
@@ -175,7 +175,7 @@ export async function getCashflow(req: Request, res: Response): Promise<void> {
 
 export async function deleteTransaction(req: Request, res: Response): Promise<void> {
   const { id } = req.params
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const tx = await prisma.transaction.findFirst({ where: { id, userId: user.id } })
@@ -190,7 +190,7 @@ export async function updateTransactionCategory(req: Request, res: Response): Pr
   const { category } = req.body as { category: string }
   if (!category) { res.status(400).json({ error: 'category is required' }); return }
 
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const tx = await prisma.transaction.findFirst({ where: { id, userId: user.id } })
@@ -208,7 +208,7 @@ export async function createManualTransaction(req: Request, res: Response): Prom
     res.status(400).json({ error: 'name, amount, and date are required' }); return
   }
 
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const externalId = `manual-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -232,7 +232,7 @@ export async function createManualAccount(req: Request, res: Response): Promise<
     res.status(400).json({ error: 'name and balance are required' }); return
   }
 
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const account = await prisma.account.create({

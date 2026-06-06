@@ -1,6 +1,8 @@
 import { Building2, Crown, LogOut, Shield, Bell, Globe, Check, AlertTriangle, X, Trash2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { useClerk } from '@clerk/clerk-react'
+// import { useClerk } from '@clerk/clerk-react' // preserved for future switch-back
+import { useAuthContext } from '@/context/AuthContext'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -45,7 +47,9 @@ function Section({ title, icon: Icon, children }: { title: string; icon: LucideI
 
 export function Settings() {
   const { user } = useUser()
-  const { signOut, openUserProfile } = useClerk()
+  const { signOut } = useAuthContext()
+  const navigate = useNavigate()
+  const openUserProfile = () => { /* profile editing in-page — no Clerk modal needed */ }
   const { accounts, loading: accountsLoading, refetch: refetchAccounts, deleteAccount } = useAccounts()
   const [notifications, setNotifications] = useState({ emailAlerts: true, weeklyReport: false })
   const [upgradeOpen, setUpgradeOpen] = useState(false)
@@ -285,7 +289,7 @@ export function Settings() {
             <p className="font-dm text-[15px] font-medium text-[var(--text)]">Sign out of this session</p>
             <p className="font-mono text-xs text-[var(--text3)]">You'll need to sign in again to access your account</p>
           </div>
-          <Button variant="danger" size="sm" icon={LogOut} onClick={() => signOut()}>Sign Out</Button>
+          <Button variant="danger" size="sm" icon={LogOut} onClick={() => { signOut(); navigate('/auth/sign-in') }}>Sign Out</Button>
         </div>
       </Section>
 

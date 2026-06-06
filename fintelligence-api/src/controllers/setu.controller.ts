@@ -14,7 +14,7 @@ export async function initiateConsent(req: Request, res: Response): Promise<void
 }
 
 export async function getConsentStatus(req: Request, res: Response): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
   let status = user.setuConsentStatus ?? 'NONE'
 
@@ -54,7 +54,7 @@ export async function getConsentStatus(req: Request, res: Response): Promise<voi
 }
 
 export async function expireConsent(req: Request, res: Response): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   if (user.setuConsentStatus === 'PENDING') {
@@ -79,7 +79,7 @@ export async function getAccounts(req: Request, res: Response): Promise<void> {
 
 export async function deleteAccount(req: Request, res: Response): Promise<void> {
   const { id } = req.params
-  const user = await prisma.user.findUnique({ where: { clerkId: req.userId } })
+  const user = await prisma.user.findUnique({ where: { id: req.userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return }
 
   const account = await prisma.account.findFirst({ where: { id, userId: user.id } })

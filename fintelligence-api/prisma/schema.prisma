@@ -7,11 +7,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model OtpCode {
+  id        String   @id @default(cuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
 model User {
   id                 String        @id @default(cuid())
-  clerkId            String        @unique
+  clerkId            String?       @unique
   email              String        @unique
   name               String?
+  firstName          String?
+  lastName           String?
   setuConsentId      String?
   setuConsentStatus  String?
   setuConsentUrl     String?

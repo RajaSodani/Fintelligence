@@ -1,10 +1,15 @@
 import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { useAuth } from '@clerk/clerk-react'
+import { useAuthContext } from '@/context/AuthContext'
 import { coreApi } from '@/lib/axios'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { useInactivityLogout } from '@/hooks/useInactivityLogout'
+
+// ── Clerk version (preserved for future switch-back) ──────────────────────
+// import { useAuth } from '@clerk/clerk-react'
+// const { isSignedIn } = useAuth()
+// ──────────────────────────────────────────────────────────────────────────
 
 function InactivityWarning({ secondsLeft, onExtend }: { secondsLeft: number; onExtend: () => void }) {
   return (
@@ -36,7 +41,7 @@ function InactivityWarning({ secondsLeft, onExtend }: { secondsLeft: number; onE
 }
 
 export function AppLayout() {
-  const { isSignedIn } = useAuth()
+  const { isSignedIn } = useAuthContext()
   const { showWarning, secondsLeft, extendSession } = useInactivityLogout()
 
   useEffect(() => {

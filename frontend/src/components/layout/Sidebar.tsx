@@ -1,8 +1,13 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Search, BarChart2, Settings, LogOut, Sparkles } from 'lucide-react'
-import { useClerk } from '@clerk/clerk-react'
+import { useAuthContext } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { useUser } from '@/hooks/useUser'
+
+// ── Clerk version (preserved for future switch-back) ──────────────────────
+// import { useClerk } from '@clerk/clerk-react'
+// const { signOut } = useClerk()
+// ──────────────────────────────────────────────────────────────────────────
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -12,7 +17,8 @@ const navItems = [
 ]
 
 export function Sidebar() {
-  const { signOut } = useClerk()
+  const { signOut } = useAuthContext()
+  const navigate = useNavigate()
   const { user } = useUser()
 
   const initials = user
@@ -20,6 +26,11 @@ export function Sidebar() {
     : '?'
 
   const displayName = user ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email : 'Loading…'
+
+  const handleSignOut = () => {
+    signOut()
+    navigate('/auth/sign-in')
+  }
 
   return (
     <aside
@@ -126,7 +137,7 @@ export function Sidebar() {
             <p className="font-mono text-2xs text-[var(--text3)] truncate">{user?.email ?? ''}</p>
           </div>
           <button
-            onClick={() => signOut()}
+            onClick={handleSignOut}
             title="Sign out"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--text3)] hover:text-[var(--red)] hover:bg-[rgba(255,77,106,0.08)] transition-all"
           >

@@ -1,15 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useClerk } from '@clerk/clerk-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuthContext } from '@/context/AuthContext'
+
+// ── Clerk version (preserved for future switch-back) ──────────────────────
+// import { useClerk } from '@clerk/clerk-react'
+// const { signOut } = useClerk()
+// ──────────────────────────────────────────────────────────────────────────
 
 const IDLE_MS = 30 * 60 * 1000   // 30 min
 const WARN_MS = 28 * 60 * 1000   // warn at 28 min (2 min before logout)
 
 export function useInactivityLogout() {
-  const { signOut } = useClerk()
+  const { signOut } = useAuthContext()
+  const navigate = useNavigate()
   const [showWarning, setShowWarning] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(120)
-  const idleTimer   = useRef<ReturnType<typeof setTimeout>>()
-  const warnTimer   = useRef<ReturnType<typeof setTimeout>>()
+  const idleTimer    = useRef<ReturnType<typeof setTimeout>>()
+  const warnTimer    = useRef<ReturnType<typeof setTimeout>>()
   const countdownRef = useRef<ReturnType<typeof setInterval>>()
 
   const reset = useCallback(() => {
@@ -32,8 +39,9 @@ export function useInactivityLogout() {
 
     idleTimer.current = setTimeout(() => {
       signOut()
+      navigate('/auth/sign-in')
     }, IDLE_MS)
-  }, [signOut])
+  }, [signOut, navigate])
 
   useEffect(() => {
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'] as const

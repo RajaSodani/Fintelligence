@@ -11,8 +11,8 @@ const addHoldingSchema = z.object({
   avgBuyPrice: z.number().positive(),
 })
 
-async function resolveUser(clerkId: string, res: Response) {
-  const user = await prisma.user.findUnique({ where: { clerkId } })
+async function resolveUser(userId: string, res: Response) {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return null }
   return user
 }

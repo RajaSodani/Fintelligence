@@ -46,7 +46,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       const history = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }))
 
       try {
-        const token = await window.Clerk?.session?.getToken()
+        // window.Clerk?.session?.getToken() — preserved for Clerk switch-back
+        const token = localStorage.getItem('fintelligence_token')
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
         if (token) headers['Authorization'] = `Bearer ${token}`
 

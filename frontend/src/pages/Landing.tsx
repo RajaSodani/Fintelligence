@@ -1,5 +1,6 @@
 import { Link, Navigate } from 'react-router-dom'
-import { useAuth } from '@clerk/clerk-react'
+// import { useAuth } from '@clerk/clerk-react' // preserved for future switch-back
+import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ArrowRight, Building2, Bot, BarChart3, ShieldCheck, Zap, TrendingUp, Sparkles } from 'lucide-react'

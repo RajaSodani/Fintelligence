@@ -9,8 +9,8 @@ const addSchema = z.object({
   ticker: z.string().min(1).toUpperCase(),
 })
 
-async function resolveUser(clerkId: string, res: Response) {
-  const user = await prisma.user.findUnique({ where: { clerkId } })
+async function resolveUser(userId: string, res: Response) {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) { res.status(404).json({ error: 'User not found' }); return null }
   return user
 }

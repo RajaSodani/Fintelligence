@@ -10,14 +10,20 @@ async def verify_clerk_token(authorization: Optional[str] = Header(None)) -> str
 
     token = authorization[7:]
 
+    # ── Self-driven JWT (HS256) ────────────────────────────────────────────
+    # Used when CLERK_PEM_PUBLIC_KEY is not set (local dev and self-auth prod).
+    # To switch back to Clerk: set CLERK_PEM_PUBLIC_KEY in env.
     if not settings.CLERK_PEM_PUBLIC_KEY:
-        # Dev mode: extract sub without verification (sandbox only)
         try:
-            payload = jwt.decode(token, options={"verify_signature": False})
-            return payload.get("sub", "dev-user")
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
+            user_id: str = payload.get("userId") or payload.get("sub", "")
+            if not user_id:
+                raise HTTPException(status_code=401, detail="Token missing userId")
+            return user_id
         except JWTError:
-            raise HTTPException(status_code=401, detail="Invalid token")
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+    # ── Clerk RS256 (preserved for future switch-back) ─────────────────────
     try:
         payload = jwt.decode(
             token,

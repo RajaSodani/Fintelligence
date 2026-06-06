@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import authRouter from './auth'
 import usersRouter from './users'
 import transactionsRouter from './transactions'
 import setuRouter from './setu'
@@ -14,6 +15,7 @@ router.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'fintelligence-api', version: '1.0.0' })
 })
 
+router.use('/auth', authRouter)
 router.use('/users', usersRouter)
 router.use('/transactions', transactionsRouter)
 router.use('/setu', setuRouter)
