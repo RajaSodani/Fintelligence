@@ -10,7 +10,7 @@ services:
     plan: free
     runtime: node
     rootDir: fintelligence-api
-    buildCommand: npm install --include=dev && npm run build
+    buildCommand: npm install && npm run build
     startCommand: npx prisma migrate deploy && node dist/index.js
     healthCheckPath: /api/v1/health
     envVars:
