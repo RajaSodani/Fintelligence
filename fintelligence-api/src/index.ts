@@ -14,7 +14,9 @@ const app = express()
 const PORT = process.env.PORT ?? 3001
 
 app.use(helmet())
-app.use(cors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:5173', credentials: true }))
+app.use(cors({
+  origin: '*',
+}))
 app.use(morgan('dev'))
 
 // Stripe webhook needs raw body — mount stripe router BEFORE json middleware via the route itself
