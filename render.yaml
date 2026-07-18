@@ -10,8 +10,8 @@ services:
     plan: free
     runtime: node
     rootDir: fintelligence-api
-    buildCommand: npm install && npm run build
-    startCommand: npx prisma migrate deploy && node dist/index.js
+    buildCommand: npm install && npm run build && npx prisma migrate deploy
+    startCommand: node dist/index.js
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
@@ -51,7 +51,6 @@ services:
     name: fintelligence-ai
     plan: free
     runtime: python
-    pythonVersion: "3.12.0"
     rootDir: fintelligence-ai
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
