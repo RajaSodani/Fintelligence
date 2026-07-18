@@ -63,7 +63,5 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
-      - key: ALLOWED_ORIGINS
-        sync: false
       - key: FRONTEND_URL
         sync: false
