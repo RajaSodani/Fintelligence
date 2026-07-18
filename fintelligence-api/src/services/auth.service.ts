@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import nodemailer from 'nodemailer'
+import axios from 'axios'
 import { PrismaClient } from '@prisma/client'
 import { signToken } from '../config/jwt'
 
@@ -7,16 +7,23 @@ const prisma = new PrismaClient()
 
 const OTP_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
-function makeTransport() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST ?? 'smtp.gmail.com',
-    port: Number(process.env.SMTP_PORT ?? 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+async function sendEmail(to: string, subject: string, html: string) {
+  const res = await axios.post(
+    'https://api.resend.com/emails',
+    {
+      from: process.env.RESEND_FROM ?? 'Fintelligence <onboarding@resend.dev>',
+      to: [to],
+      subject,
+      html,
     },
-  })
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+  if (res.status >= 400) throw new Error(`Resend error: ${res.statusText}`)
 }
 
 export async function sendOtp(email: string): Promise<void> {
@@ -31,14 +38,10 @@ export async function sendOtp(email: string): Promise<void> {
 
   await prisma.otpCode.create({ data: { email, code, expiresAt } })
 
-  const from = process.env.SMTP_FROM ?? `Fintelligence <noreply@fintelligence.ai>`
-
-  const transport = makeTransport()
-  await transport.sendMail({
-    from,
-    to: email,
-    subject: `Your Fintelligence sign-in code: ${code}`,
-    html: `
+  await sendEmail(
+    email,
+    `Your Fintelligence sign-in code: ${code}`,
+    `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0e1018;color:#f0f2f8;border-radius:12px">
         <h2 style="margin:0 0 8px;font-size:22px;color:#f0f2f8">Your sign-in code</h2>
         <p style="color:#8b90a0;margin:0 0 24px">Use this code to sign in to Fintelligence. It expires in 10 minutes.</p>
@@ -48,7 +51,7 @@ export async function sendOtp(email: string): Promise<void> {
         <p style="color:#8b90a0;margin:24px 0 0;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
       </div>
     `,
-  })
+  )
 }
 
 export async function verifyOtp(
