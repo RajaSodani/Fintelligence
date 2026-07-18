@@ -1,7 +1,7 @@
 databases:
   - name: fintelligence-db
     plan: free
-    databaseName: fintelligence
+    databaseName: fintelligence_db_th1k
     user: fintelligence_user
 
 services:
